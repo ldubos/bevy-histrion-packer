@@ -8,6 +8,8 @@ A Bevy plugin to pack assets into a single file :boom:
 
 ```rust
 // build.rs
+use std::path::Path;
+
 use bevy_histrion_packer::pack_assets_folder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,6 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let destination = Path::new("assets.hpak");
 
     pack_assets_folder(source, destination, false)?;
+    Ok(())
 }
 ```
 
