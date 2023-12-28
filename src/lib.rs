@@ -165,7 +165,7 @@ impl Plugin for HistrionPackerPlugin {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, io::Read};
+    use std::{io::Read, path::Path};
 
     use bevy::asset::AsyncReadExt;
     use futures_lite::{future, StreamExt};
@@ -181,7 +181,8 @@ mod tests {
         let mut original = Vec::new();
         File::open(Path::new("assets/").join(path))
             .unwrap()
-            .read_to_end(&mut original).unwrap();
+            .read_to_end(&mut original)
+            .unwrap();
         assert_eq!(buf, original);
     }
 
@@ -205,20 +206,16 @@ mod tests {
             assert_eq!(entries.len(), 4);
             assert!(entries
                 .iter()
-                .find(|p| **p == PathBuf::from("subdir/"))
-                .is_some());
+                .any(|p| *p == PathBuf::from("subdir/")));
             assert!(entries
                 .iter()
-                .find(|p| **p == PathBuf::from("empty.test"))
-                .is_some());
+                .any(|p| *p == PathBuf::from("empty.test")));
             assert!(entries
                 .iter()
-                .find(|p| **p == PathBuf::from("test.test"))
-                .is_some());
+                .any(|p| *p == PathBuf::from("test.test")));
             assert!(entries
                 .iter()
-                .find(|p| **p == PathBuf::from("テスト.test"))
-                .is_some());
+                .any(|p| *p == PathBuf::from("テスト.test")));
 
             cmp_reader_file(Path::new("empty.test"), &reader).await;
             cmp_reader_file(Path::new("test.test"), &reader).await;
