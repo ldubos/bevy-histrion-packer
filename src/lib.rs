@@ -165,7 +165,7 @@ impl Plugin for HistrionPackerPlugin {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{path::Path, io::Read};
 
     use bevy::asset::AsyncReadExt;
     use futures_lite::{future, StreamExt};
@@ -174,28 +174,59 @@ mod tests {
 
     use super::*;
 
+    async fn cmp_reader_file(path: &Path, reader: &HPakReader) {
+        let mut data = reader.read_data(path).unwrap();
+        let mut buf = Vec::new();
+        data.read_to_end(&mut buf).await.unwrap();
+        let mut original = Vec::new();
+        File::open(Path::new("assets/").join(path))
+            .unwrap()
+            .read_to_end(&mut original).unwrap();
+        assert_eq!(buf, original);
+    }
+
     #[test]
     fn test_pack_assets_folder() {
         let source = Path::new("assets");
         let destination = Path::new("assets.hpak");
 
-        pack_assets_folder(source, destination, false).unwrap();
+        pack_assets_folder(source, destination, true).unwrap();
 
         let reader = HPakReader::new(destination).unwrap();
 
         future::block_on(async {
             let mut stream = reader.read_directory(Path::new("")).unwrap();
-            assert_eq!(stream.next().await, Some(PathBuf::from("test.text")));
+            let mut entries = Vec::new();
 
-            let mut meta = reader.read_meta(&PathBuf::from("test.text")).unwrap();
-            let mut meta_buffer = vec![0; 11];
-            meta.read(&mut meta_buffer).await.unwrap();
+            while let Some(entry) = stream.next().await {
+                entries.push(entry);
+            }
 
-            let mut data = reader.read_data(&PathBuf::from("test.text")).unwrap();
-            let mut data_buffer = vec![0; 27];
-            data.read(&mut data_buffer).await.unwrap();
+            assert_eq!(entries.len(), 4);
+            assert!(entries
+                .iter()
+                .find(|p| **p == PathBuf::from("subdir/"))
+                .is_some());
+            assert!(entries
+                .iter()
+                .find(|p| **p == PathBuf::from("empty.test"))
+                .is_some());
+            assert!(entries
+                .iter()
+                .find(|p| **p == PathBuf::from("test.test"))
+                .is_some());
+            assert!(entries
+                .iter()
+                .find(|p| **p == PathBuf::from("テスト.test"))
+                .is_some());
 
-            assert_eq!(data_buffer, b"Lorem ipsum dolor sit amet\n");
+            cmp_reader_file(Path::new("empty.test"), &reader).await;
+            cmp_reader_file(Path::new("test.test"), &reader).await;
+            cmp_reader_file(Path::new("テスト.test"), &reader).await;
+            cmp_reader_file(Path::new("subdir/ça bug.test"), &reader).await;
+            cmp_reader_file(Path::new("subdir/sub_sub_dir/a.test"), &reader).await;
+            cmp_reader_file(Path::new("subdir/sub_sub_dir/b.test"), &reader).await;
+            cmp_reader_file(Path::new("subdir/sub_sub_dir/bin.test"), &reader).await;
         });
     }
 }
