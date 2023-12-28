@@ -1,0 +1,24 @@
+[package]
+name = "bevy_histrion_packer"
+authors = ["Ludwig DUBOS <ludwig.dubos@gmail.com>"]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["bevy", "assets", "packer", "zlib"]
+categories = ["game-development", "compression", "encoding"]
+repository = "https://github.com/ldubos/bevy-histrion-packer"
+documentation = "https://docs.rs/bevy-histrion-packer"
+description = "A Bevy plugin to pack assets into a single file."
+
+[dependencies]
+flate2 = "1.0"
+futures-io = "0.3"
+futures-lite = "2.1"
+tempfile = "3.9"
+walkdir = "2.4"
+
+[dependencies.bevy]
+version = "0.12"
+default-features = false
+features = ["bevy_asset"]
