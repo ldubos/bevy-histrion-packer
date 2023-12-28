@@ -1,7 +1,4 @@
-use std::{
-    io::{BufRead, BufReader, Read},
-    path::PathBuf,
-};
+use std::{io::Read, path::PathBuf};
 
 use super::encoder::Encoder;
 
@@ -20,13 +17,15 @@ impl Encoder for Entry {
         out.extend_from_slice(&self.offset.to_le_bytes());
         out.extend_from_slice(&self.meta_size.to_le_bytes());
         out.extend_from_slice(&self.data_size.to_le_bytes());
-        out.extend_from_slice(
-            self.path
-                .to_string_lossy()
-                .replace(std::path::MAIN_SEPARATOR, "/")
-                .as_bytes(),
-        );
-        out.push(b'\0');
+
+        let path = self
+            .path
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/");
+        let path_bytes = path.as_bytes();
+
+        out.extend_from_slice(&(path_bytes.len() as u64).to_le_bytes());
+        out.extend_from_slice(path_bytes);
 
         out
     }
@@ -37,7 +36,7 @@ impl Encoder for Entry {
     {
         let mut buffer_u64 = [0; 8];
 
-        // read the offset, meta_size, and data_size.
+        // read the offset, meta_size, data_size and path_size
         reader.read_exact(&mut buffer_u64)?;
         let offset = u64::from_le_bytes(buffer_u64);
 
@@ -47,22 +46,22 @@ impl Encoder for Entry {
         reader.read_exact(&mut buffer_u64)?;
         let data_size = u64::from_le_bytes(buffer_u64);
 
-        let mut path = Vec::new();
-        let mut buf_reader = BufReader::new(reader);
-        buf_reader.read_until(b'\0', &mut path)?;
+        reader.read_exact(&mut buffer_u64)?;
+        let path_size = u64::from_le_bytes(buffer_u64);
 
-        // remove the null byte.
-        path.pop();
+        // read the path
+        let mut path = vec![0; path_size as usize];
+        reader.read_exact(&mut path)?;
 
         Ok(Self {
             offset,
             meta_size,
             data_size,
-            path: PathBuf::from(String::from_utf8(path)?),
+            path: PathBuf::from(String::from_utf8_lossy(&path).to_string()),
         })
     }
 
     fn size_in_bytes(&self) -> u64 {
-        8 + 8 + 8 + self.path.to_string_lossy().len() as u64 + 1
+        8 + 8 + 8 + 8 + self.path.to_string_lossy().len() as u64
     }
 }

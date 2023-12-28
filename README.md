@@ -38,4 +38,4 @@ fn main() {
 
 |bevy|bevy-histrion-packer|
 |---|---|
-|0.12|0.1|``
+|`0.12`|`0.1`|
