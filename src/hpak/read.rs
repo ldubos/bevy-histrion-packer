@@ -64,7 +64,7 @@ impl HPakReader {
             return Err("not a directory".into());
         }
 
-        let paths: Vec<PathBuf> = self
+        let mut paths: Vec<PathBuf> = self
             .header
             .entries
             .iter()
@@ -81,6 +81,8 @@ impl HPakReader {
                 }
             })
             .collect();
+
+        paths.dedup();
 
         Ok(Box::new(DirStream(paths.clone())))
     }
