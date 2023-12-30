@@ -1,5 +1,7 @@
 use std::io::Read;
 
+use crate::errors::HPakError;
+
 use super::{encoder::Encoder, entry::Entry};
 
 #[derive(Default, Debug, Clone)]
@@ -20,7 +22,7 @@ impl Encoder for Header {
         out
     }
 
-    fn decode<R: ?Sized>(reader: &mut R) -> Result<Self, Box<dyn std::error::Error>>
+    fn decode<R: ?Sized>(reader: &mut R) -> Result<Self, HPakError>
     where
         R: Read,
     {

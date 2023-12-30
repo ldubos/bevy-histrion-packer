@@ -7,12 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
-#[cfg(target_family = "unix")]
-use std::os::unix::fs::FileExt;
-#[cfg(target_family = "windows")]
-use std::os::windows::fs::FileExt;
-
-use bevy::asset::io::PathStream;
+use crate::HPakError;
 
 use super::{encoder::Encoder, header::Header};
 
@@ -22,7 +17,7 @@ pub struct HPakReader {
 }
 
 impl HPakReader {
-    pub fn new(source: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(source: &Path) -> Result<Self, HPakError> {
         let mut source = File::open(source)?;
         let header = Header::decode(&mut source)?;
 
@@ -32,36 +27,39 @@ impl HPakReader {
         })
     }
 
-    pub fn read_meta(&self, path: &Path) -> Result<HPakEntryReader, Box<dyn std::error::Error>> {
+    fn read_entry(&self, path: &Path, is_meta: bool) -> Result<HPakEntryReader, HPakError> {
         if let Some(entry) = self.header.entries.iter().find(|e| e.path == path) {
-            Ok(HPakEntryReader::new(
-                self.source.clone(),
-                entry.offset,
-                entry.meta_size,
-            ))
+            let offset = if is_meta {
+                entry.offset
+            } else {
+                entry.offset + entry.meta_size
+            };
+            let length = if is_meta {
+                entry.meta_size
+            } else {
+                entry.data_size
+            };
+
+            Ok(HPakEntryReader::new(self.source.clone(), offset, length))
         } else {
-            Err("entry not found".into())
+            Err(HPakError::NotFound)
         }
     }
 
-    pub fn read_data(&self, path: &Path) -> Result<HPakEntryReader, Box<dyn std::error::Error>> {
-        if let Some(entry) = self.header.entries.iter().find(|e| e.path == path) {
-            Ok(HPakEntryReader::new(
-                self.source.clone(),
-                entry.offset + entry.meta_size,
-                entry.data_size,
-            ))
-        } else {
-            Err("entry not found".into())
-        }
+    pub fn read_meta(&self, path: &Path) -> Result<HPakEntryReader, HPakError> {
+        self.read_entry(path, true)
+    }
+
+    pub fn read_data(&self, path: &Path) -> Result<HPakEntryReader, HPakError> {
+        self.read_entry(path, false)
     }
 
     pub fn read_directory(
         &self,
         path: &Path,
-    ) -> Result<Box<PathStream>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<bevy::asset::io::PathStream>, HPakError> {
         if !self.is_directory(path) {
-            return Err("not a directory".into());
+            return Err(HPakError::NotFound);
         }
 
         let mut paths: Vec<PathBuf> = self
@@ -96,19 +94,12 @@ impl HPakReader {
     }
 }
 
-#[cfg(target_family = "unix")]
-fn read_at(file: &File, offset: u64, buffer: &mut [u8]) -> std::io::Result<usize> {
-    file.read_at(buffer, offset)
-}
-
-#[cfg(target_family = "windows")]
-fn read_at(file: &File, offset: u64, buffer: &mut [u8]) -> std::io::Result<usize> {
-    file.seek_read(buffer, offset)
-}
-
+/// A reader that allows reading parts of a file.
+///
+/// It is designed to read a specific segment of a file and permits multi-threaded access to a file by using
+/// [`std::os::unix::fs::FileExt::read_at`] on Unix systems and [`std::os::windows::fs::FileExt::seek_read`] on Windows.
 pub struct PartialReader {
     file: Arc<File>,
-    offset: u64,
     cursor: u64,
     length: u64,
 }
@@ -117,24 +108,43 @@ impl PartialReader {
     pub fn new(file: Arc<File>, offset: u64, length: u64) -> Self {
         Self {
             file,
-            offset,
-            length,
-            cursor: 0,
+            length: length + offset,
+            cursor: offset,
         }
     }
 }
 
 impl std::io::Read for PartialReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let to_read = std::cmp::min(buf.len(), (self.length - self.cursor) as usize);
+        let max_bytes = buf.len().min(
+            (std::num::Saturating(self.length) - std::num::Saturating(self.cursor)).0 as usize,
+        );
 
-        if to_read == 0 {
+        if max_bytes == 0 {
             return Ok(0);
         }
 
-        let read = read_at(&self.file, self.offset + self.cursor, &mut buf[..to_read])?;
-        self.cursor += read as u64;
-        Ok(read)
+        let bytes_red = {
+            #[cfg(target_family = "unix")]
+            {
+                use std::os::unix::fs::FileExt;
+                self.file.read_at(&mut buf[..max_bytes], self.cursor)?
+            }
+
+            #[cfg(target_family = "windows")]
+            {
+                use std::os::windows::fs::FileExt;
+                self.file.seek_read(&mut buf[..max_bytes], self.cursor)?
+            }
+
+            #[cfg(not(any(target_family = "unix", target_family = "windows")))]
+            {
+                panic!("unsupported platform");
+            }
+        };
+
+        self.cursor += bytes_red as u64;
+        Ok(bytes_red)
     }
 }
 

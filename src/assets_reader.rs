@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use bevy::asset::io::AssetReader;
+use bevy::asset::io::{AssetReader, AssetReaderError};
 
-use crate::hpak::HPakReader;
+use crate::{errors::HPakError, hpak::HPakReader};
 
 pub struct HistrionPakAssetsReader {
     reader: HPakReader,
@@ -25,12 +25,13 @@ impl AssetReader for HistrionPakAssetsReader {
         Result<Box<bevy::asset::io::Reader<'a>>, bevy::asset::io::AssetReaderError>,
     > {
         Box::pin(async move {
-            self.reader
-                .read_data(path)
-                .map(|r| Box::new(r) as Box<bevy::asset::io::Reader<'a>>)
-                .or(Err(bevy::asset::io::AssetReaderError::NotFound(
-                    path.to_path_buf(),
-                )))
+            self.reader.read_data(path).map_or_else(
+                |e| match e {
+                    HPakError::NotFound => Err(AssetReaderError::NotFound(path.to_path_buf())),
+                    HPakError::Io(err) => Err(AssetReaderError::Io(err)),
+                },
+                |r| Ok(Box::new(r) as Box<bevy::asset::io::Reader<'a>>),
+            )
         })
     }
 
@@ -42,12 +43,13 @@ impl AssetReader for HistrionPakAssetsReader {
         Result<Box<bevy::asset::io::Reader<'a>>, bevy::asset::io::AssetReaderError>,
     > {
         Box::pin(async move {
-            self.reader
-                .read_meta(path)
-                .map(|r| Box::new(r) as Box<bevy::asset::io::Reader<'a>>)
-                .or(Err(bevy::asset::io::AssetReaderError::NotFound(
-                    path.to_path_buf(),
-                )))
+            self.reader.read_meta(path).map_or_else(
+                |e| match e {
+                    HPakError::NotFound => Err(AssetReaderError::NotFound(path.to_path_buf())),
+                    HPakError::Io(err) => Err(AssetReaderError::Io(err)),
+                },
+                |r| Ok(Box::new(r) as Box<bevy::asset::io::Reader<'a>>),
+            )
         })
     }
 
@@ -59,12 +61,13 @@ impl AssetReader for HistrionPakAssetsReader {
         Result<Box<bevy::asset::io::PathStream>, bevy::asset::io::AssetReaderError>,
     > {
         Box::pin(async move {
-            self.reader
-                .read_directory(path)
-                .map(|r| Box::new(r) as Box<bevy::asset::io::PathStream>)
-                .or(Err(bevy::asset::io::AssetReaderError::NotFound(
-                    path.to_path_buf(),
-                )))
+            self.reader.read_directory(path).map_or_else(
+                |e| match e {
+                    HPakError::NotFound => Err(AssetReaderError::NotFound(path.to_path_buf())),
+                    HPakError::Io(err) => Err(AssetReaderError::Io(err)),
+                },
+                |r| Ok(Box::new(r) as Box<bevy::asset::io::PathStream>),
+            )
         })
     }
 

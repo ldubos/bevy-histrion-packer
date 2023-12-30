@@ -14,7 +14,10 @@ use hpak::HPakWriter;
 use walkdir::WalkDir;
 
 mod assets_reader;
+mod errors;
 mod hpak;
+
+pub(crate) use errors::HPakError;
 
 fn get_meta_path(path: &Path) -> PathBuf {
     let mut meta_path = path.to_path_buf();
@@ -204,18 +207,10 @@ mod tests {
             }
 
             assert_eq!(entries.len(), 4);
-            assert!(entries
-                .iter()
-                .any(|p| *p == PathBuf::from("subdir/")));
-            assert!(entries
-                .iter()
-                .any(|p| *p == PathBuf::from("empty.test")));
-            assert!(entries
-                .iter()
-                .any(|p| *p == PathBuf::from("test.test")));
-            assert!(entries
-                .iter()
-                .any(|p| *p == PathBuf::from("テスト.test")));
+            assert!(entries.iter().any(|p| *p == PathBuf::from("subdir/")));
+            assert!(entries.iter().any(|p| *p == PathBuf::from("empty.test")));
+            assert!(entries.iter().any(|p| *p == PathBuf::from("test.test")));
+            assert!(entries.iter().any(|p| *p == PathBuf::from("テスト.test")));
 
             cmp_reader_file(Path::new("empty.test"), &reader).await;
             cmp_reader_file(Path::new("test.test"), &reader).await;
