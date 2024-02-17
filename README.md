@@ -41,6 +41,7 @@ fn main() {
 
 |bevy|bevy-histrion-packer|
 |---|---|
+|`0.13`|`0.2`|
 |`0.12`|`0.1`|
 
 ## License

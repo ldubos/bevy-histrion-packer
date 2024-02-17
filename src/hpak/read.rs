@@ -108,8 +108,8 @@ impl PartialReader {
     pub fn new(file: Arc<File>, offset: u64, length: u64) -> Self {
         Self {
             file,
-            length: length + offset,
             cursor: offset,
+            length: length + offset,
         }
     }
 }

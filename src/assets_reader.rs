@@ -28,7 +28,7 @@ impl AssetReader for HistrionPakAssetsReader {
             self.reader.read_data(path).map_or_else(
                 |e| match e {
                     HPakError::NotFound => Err(AssetReaderError::NotFound(path.to_path_buf())),
-                    HPakError::Io(err) => Err(AssetReaderError::Io(err)),
+                    HPakError::Io(err) => Err(AssetReaderError::Io(err.into())),
                 },
                 |r| Ok(Box::new(r) as Box<bevy::asset::io::Reader<'a>>),
             )
@@ -46,7 +46,7 @@ impl AssetReader for HistrionPakAssetsReader {
             self.reader.read_meta(path).map_or_else(
                 |e| match e {
                     HPakError::NotFound => Err(AssetReaderError::NotFound(path.to_path_buf())),
-                    HPakError::Io(err) => Err(AssetReaderError::Io(err)),
+                    HPakError::Io(err) => Err(AssetReaderError::Io(err.into())),
                 },
                 |r| Ok(Box::new(r) as Box<bevy::asset::io::Reader<'a>>),
             )
@@ -64,7 +64,7 @@ impl AssetReader for HistrionPakAssetsReader {
             self.reader.read_directory(path).map_or_else(
                 |e| match e {
                     HPakError::NotFound => Err(AssetReaderError::NotFound(path.to_path_buf())),
-                    HPakError::Io(err) => Err(AssetReaderError::Io(err)),
+                    HPakError::Io(err) => Err(AssetReaderError::Io(err.into())),
                 },
                 |r| Ok(Box::new(r) as Box<bevy::asset::io::PathStream>),
             )

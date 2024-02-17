@@ -1,0 +1,15 @@
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ludwig DUBOS <ludwig.dubos@gmail.com>"]
+license = "MIT or Apache-2.0"
+publish = false
+
+[dependencies]
+bevy-histrion-packer = { path = "../../" }
+bevy = "0.13"
+
+[build-dependencies]
+bevy-histrion-packer = { path = "../../" }
+bevy = { version = "0.13", features = ["asset_processor"] }
