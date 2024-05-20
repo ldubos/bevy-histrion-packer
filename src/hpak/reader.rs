@@ -83,10 +83,10 @@ impl HPakAssetsReader {
 
         let mut lock = self.source.lock();
         let source = lock.deref_mut();
-        let mut raw = vec![0; (length - offset) as usize];
+        let mut raw = vec![0; length as usize];
 
         source.seek(SeekFrom::Start(offset))?;
-        source.take(length).read_to_end(&mut raw)?;
+        source.read_exact(&mut raw)?;
 
         Ok(EntryReader::new(raw, compression_method))
     }
