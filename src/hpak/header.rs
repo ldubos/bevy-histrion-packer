@@ -1,53 +1,83 @@
-use std::io::Read;
+use crate::errors::Error;
 
-use crate::errors::HPakError;
+use super::compression::CompressionAlgorithm;
+use super::encoder::Encoder;
 
-use super::{encoder::Encoder, entry::Entry};
-
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Header {
-    pub(crate) entries: Vec<Entry>,
+    /// HPAK
+    pub(crate) magic: [u8; crate::MAGIC_LEN],
+    /// Version of the file format
+    pub(crate) version: u16,
+    /// The compression method for entries' metadata
+    pub(crate) metadata_compression_method: CompressionAlgorithm,
+    /// The position of the entry table
+    pub(crate) entry_table_offset: u64,
+}
+
+impl Header {
+    pub const SIZE: u64 = crate::MAGIC_LEN as u64 + 2 + 1 + 8;
+
+    pub fn new(metadata_compression_method: CompressionAlgorithm, entry_table_offset: u64) -> Self {
+        Self {
+            magic: *crate::MAGIC,
+            version: crate::VERSION,
+            metadata_compression_method,
+            entry_table_offset,
+        }
+    }
 }
 
 impl Encoder for Header {
     fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::new();
+        let mut bytes = Vec::with_capacity(Self::SIZE as usize);
 
-        out.extend_from_slice(&(self.entries.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&self.magic.encode());
+        bytes.extend_from_slice(&self.version.encode());
+        bytes.extend_from_slice(&self.metadata_compression_method.encode());
+        bytes.extend_from_slice(&self.entry_table_offset.encode());
 
-        for entry in &self.entries {
-            out.extend_from_slice(&entry.encode());
-        }
-
-        out
+        bytes
     }
 
-    fn decode<R: ?Sized>(reader: &mut R) -> Result<Self, HPakError>
-    where
-        R: Read,
-    {
-        // convert the length of the entries vector to a u64 and add it to the output buffer.
-        let mut buffer_u64 = [0; 8];
-        reader.read_exact(&mut buffer_u64)?;
-        let num_entries = u64::from_le_bytes(buffer_u64);
+    fn decode<R: std::io::prelude::Read>(reader: &mut R) -> Result<Self, Error> {
+        let magic = <[u8; crate::MAGIC_LEN]>::decode(reader)?;
 
-        let mut entries = Vec::with_capacity(num_entries as usize);
-
-        for _ in 0..num_entries {
-            let entry = Entry::decode(reader)?;
-            entries.push(entry);
+        if !magic.iter().zip(crate::MAGIC.iter()).all(|(a, b)| a == b) {
+            return Err(Error::InvalidFileFormat);
         }
 
-        Ok(Self { entries })
+        let version = u16::decode(reader)?;
+
+        if version != crate::VERSION {
+            return Err(Error::BadVersion(version));
+        }
+
+        Ok(Self {
+            magic,
+            version,
+            metadata_compression_method: CompressionAlgorithm::decode(reader)?,
+            entry_table_offset: u64::decode(reader)?,
+        })
     }
+}
 
-    fn size_in_bytes(&self) -> u64 {
-        let mut size = 8;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        for entry in &self.entries {
-            size += entry.size_in_bytes();
-        }
+    #[test]
+    fn test_header_encode_decode() {
+        let header = Header::new(CompressionAlgorithm::Deflate, 42);
+        let bytes = header.encode();
+        let decoded = Header::decode(&mut bytes.as_slice()).unwrap();
 
-        size
+        assert_eq!(header.magic, decoded.magic);
+        assert_eq!(header.version, decoded.version);
+        assert_eq!(
+            header.metadata_compression_method,
+            decoded.metadata_compression_method
+        );
+        assert_eq!(header.entry_table_offset, decoded.entry_table_offset);
     }
 }
