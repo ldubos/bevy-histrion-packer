@@ -117,10 +117,84 @@ where
         let len = u64::decode(reader)?;
         let mut vec = Vec::<T>::with_capacity(len as usize);
 
-        for idx in 0..len {
-            vec[idx as usize] = T::decode(reader)?;
+        for _ in 0..len {
+            vec.push(T::decode(reader)?);
         }
 
         Ok(vec)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! test_num_impl {
+        ($f:ident, $t:ty) => {
+            #[test]
+            fn $f() {
+                let bytes = <$t>::MIN.encode();
+                let decoded = <$t>::decode(&mut bytes.as_slice()).unwrap();
+
+                assert_eq!(<$t>::MIN, decoded);
+
+                let bytes = <$t>::MAX.encode();
+                let decoded = <$t>::decode(&mut bytes.as_slice()).unwrap();
+
+                assert_eq!(<$t>::MAX, decoded);
+            }
+        };
+    }
+
+    test_num_impl!(test_i8_encode_decode, i8);
+    test_num_impl!(test_i16_encode_decode, i16);
+    test_num_impl!(test_i32_encode_decode, i32);
+    test_num_impl!(test_i64_encode_decode, i64);
+    test_num_impl!(test_i128_encode_decode, i128);
+    test_num_impl!(test_u8_encode_decode, u8);
+    test_num_impl!(test_u16_encode_decode, u16);
+    test_num_impl!(test_u32_encode_decode, u32);
+    test_num_impl!(test_u64_encode_decode, u64);
+    test_num_impl!(test_u128_encode_decode, u128);
+    test_num_impl!(test_f32_encode_decode, f32);
+    test_num_impl!(test_f64_encode_decode, f64);
+
+    #[test]
+    fn test_string_encode_decode() {
+        let string = "Hello World!".to_string();
+        let bytes = string.encode();
+        let decoded = String::decode(&mut bytes.as_slice()).unwrap();
+
+        assert_eq!(string, decoded);
+    }
+
+    #[test]
+    fn test_array_encode_decode() {
+        let array = [u16::MIN, u16::MAX];
+        let bytes = array.encode();
+        let decoded = <[u16; 2]>::decode(&mut bytes.as_slice()).unwrap();
+
+        assert_eq!(array, decoded);
+    }
+
+    #[test]
+    fn test_vec_encode_decode() {
+        let vec = vec![u16::MIN, u16::MAX];
+        let bytes = vec.encode();
+        let decoded = Vec::<u16>::decode(&mut bytes.as_slice()).unwrap();
+
+        assert_eq!(vec, decoded);
+    }
+
+    #[test]
+    fn test_tuple_encode_decode() {
+        let tuple = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
+        let bytes = tuple.encode();
+        let decoded = <(u16, u16, u16, u16, u16, u16, u16, u16, u16, u16, u16, u16)>::decode(
+            &mut bytes.as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(tuple, decoded);
     }
 }
