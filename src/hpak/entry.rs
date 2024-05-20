@@ -15,6 +15,7 @@ pub struct Entry {
 impl Entry {
     pub const SIZE: u64 = 1 + 8 + 8 + 8;
 
+    #[allow(dead_code)]
     pub fn new(
         compression_method: CompressionAlgorithm,
         offset: u64,

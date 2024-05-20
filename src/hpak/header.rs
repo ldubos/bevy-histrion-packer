@@ -18,6 +18,7 @@ pub struct Header {
 impl Header {
     pub const SIZE: u64 = crate::MAGIC_LEN as u64 + 2 + 1 + 8;
 
+    #[allow(dead_code)]
     pub fn new(metadata_compression_method: CompressionAlgorithm, entry_table_offset: u64) -> Self {
         Self {
             magic: *crate::MAGIC,
