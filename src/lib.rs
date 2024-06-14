@@ -1,9 +1,14 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+
+#[cfg(not(any(windows, unix)))]
+compile_error!("bevy-histrion-packer is not supported on this platform");
+
 pub mod errors;
 mod hpak;
 pub mod utils;
 
 /// The fomrat version of the HPAK file format.
-pub const VERSION: u16 = 2;
+pub const VERSION: u16 = 3;
 
 /// The length of the HPAK magic.
 pub const MAGIC_LEN: usize = 4;
@@ -20,21 +25,26 @@ use bevy::{
 pub use hpak::compression::CompressionAlgorithm;
 pub use hpak::reader::HPakAssetsReader;
 
-#[cfg(feature = "packing")]
+#[cfg(feature = "writer")]
 pub use hpak::writer::{Writer, WriterBuilder};
 
-#[cfg(feature = "packing")]
+#[cfg(feature = "writer")]
 pub use utils::pack_assets_folder;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub enum HistrionPackerMode {
-    /// Add a new [`AssetSource`] available through the `hpak://` source.
-    #[default]
-    Autoload,
+    /// Add a new [`AssetSource`] available through the `<source_id>://` source.
+    Autoload(&'static str),
     /// Replace the default [`AssetSource`] with the hpak source for processed files only,
     ///
     /// it uses the default source for the current platform for unprocessed files.
     ReplaceDefaultProcessed,
+}
+
+impl Default for HistrionPackerMode {
+    fn default() -> Self {
+        Self::Autoload("hpak")
+    }
 }
 
 pub struct HistrionPackerPlugin {
@@ -52,9 +62,9 @@ impl Plugin for HistrionPackerPlugin {
         let source = self.source.clone();
 
         match self.mode {
-            HistrionPackerMode::Autoload => {
+            HistrionPackerMode::Autoload(source_id) => {
                 app.register_asset_source(
-                    AssetSourceId::Name("hpak".into()),
+                    AssetSourceId::Name(source_id.into()),
                     AssetSource::build().with_reader(move || {
                         let source = source.clone();
                         Box::new(HPakAssetsReader::new(&source).unwrap())

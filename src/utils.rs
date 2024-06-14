@@ -33,17 +33,22 @@ pub fn get_meta_loader_settings<L: AssetLoader>(meta: &[u8]) -> Result<L::Settin
     Ok(settings)
 }
 
-#[cfg(feature = "packing")]
-pub use packing::*;
+#[cfg(feature = "writer")]
+pub use writer::*;
 
-#[cfg(feature = "packing")]
-mod packing {
+#[cfg(feature = "writer")]
+mod writer {
     use std::{
-        fs::File,
+        fs::{File, OpenOptions},
         path::{Path, PathBuf},
     };
 
-    use crate::Writer;
+    use crate::{
+        hpak::writer::DEFAULT_FALLBACK_COMPRESSION_METHOD, utils::get_meta_loader_settings,
+        CompressionAlgorithm, WriterBuilder,
+    };
+
+    use super::get_meta_loader_type_path;
 
     fn get_meta_path(path: &Path) -> PathBuf {
         let mut meta_path = path.to_path_buf();
@@ -58,53 +63,29 @@ mod packing {
 
     /// Read the `source` folder recursively and pack all it's assets into a HPAK file.
     ///
-    /// # Examples
-    ///
-    /// ## Basic usage
-    ///
-    /// ```
+    /// ```no_run
     /// use std::fs::{File, OpenOptions};
     /// use std::path::Path;
     /// use bevy_histrion_packer::{WriterBuilder, CompressionAlgorithm, pack_assets_folder};
     ///
     /// let source = Path::new("imported_assets/Default");
-    /// let mut destination = OpenOptions::new()
-    ///         .write(true)
-    ///         .create(true)
-    ///         .truncate(true)
-    ///         .open("assets.hpak").unwrap();
+    /// let destination = Path::new("assets.hpak");
     ///
-    /// let mut writer = WriterBuilder::new(&mut destination).build().unwrap();
-    ///
-    /// pack_assets_folder(&source, &mut writer).unwrap();
+    /// pack_assets_folder(&source, &destination).unwrap();
     /// ```
-    ///
-    /// ## Custom config
-    ///
-    /// ```
-    /// use std::fs::{File, OpenOptions};
-    /// use std::path::Path;
-    /// use bevy_histrion_packer::{WriterBuilder, CompressionAlgorithm, pack_assets_folder};
-    ///
-    /// let source = Path::new("imported_assets/Default");
-    /// let mut destination = OpenOptions::new()
-    ///         .write(true)
-    ///         .create(true)
-    ///         .truncate(true)
-    ///         .open("assets.hpak").unwrap();
-    ///
-    /// // Use Deflate compression for metadata and data.
-    /// let mut writer = WriterBuilder::new(&mut destination)
-    ///         .meta_compression(CompressionAlgorithm::Deflate)
-    ///         .data_compression_fn(&|_path, _meta| CompressionAlgorithm::Deflate)
-    ///         .build().unwrap();
-    ///
-    /// pack_assets_folder(&source, &mut writer).unwrap();
-    /// ```
-    pub fn pack_assets_folder<W: std::io::Write>(
+    pub fn pack_assets_folder(
         source: &Path,
-        writer: &mut Writer<W>,
+        destination: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut writer = WriterBuilder::new(
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open(&destination)?,
+        )
+        .build()?;
+
         for entry in walkdir::WalkDir::new(source)
             .into_iter()
             .filter_map(Result::ok)
@@ -122,16 +103,76 @@ mod packing {
                 let mut meta_file = File::open(meta_path)?;
                 let mut data_file = File::open(data_path)?;
 
+                let mut meta_buffer = Vec::new();
+                std::io::Read::read_to_end(&mut meta_file, &mut meta_buffer)?;
+
+                let compression_method =
+                    if let Ok(loader_type) = get_meta_loader_type_path(&meta_buffer) {
+                        match loader_type.as_str() {
+                            #[cfg(feature = "brotli")]
+                            "bevy_render::render_resource::shader::ShaderLoader" => {
+                                CompressionAlgorithm::Brotli
+                            }
+                            "bevy_render::texture::image_loader::ImageLoader" => {
+                                handle_image_loader(&meta_buffer)
+                            }
+                            _ => handle_extensions(data_path.into()),
+                        }
+                    } else {
+                        handle_extensions(data_path.into())
+                    };
+
                 writer.add_entry(
                     data_path.strip_prefix(source)?,
                     &mut meta_file,
                     &mut data_file,
+                    compression_method,
                 )?;
             }
         }
 
         writer.finish()?;
         Ok(())
+    }
+
+    #[inline(always)]
+    fn handle_image_loader(meta: &[u8]) -> CompressionAlgorithm {
+        use bevy::render::texture::{ImageFormat, ImageFormatSetting, ImageLoader};
+
+        match get_meta_loader_settings::<ImageLoader>(meta) {
+            Ok(settings) => match settings.format {
+                ImageFormatSetting::Format(format) => match format {
+                    // Don't compress images that already greatly benefits from compression and/or can
+                    // be decompressed directly by the GPU to avoid unnecessary CPU
+                    // overhead during asset loading.
+                    ImageFormat::OpenExr | ImageFormat::Basis | ImageFormat::Ktx2 => {
+                        CompressionAlgorithm::None
+                    }
+                    _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
+                },
+                _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
+            },
+            _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
+        }
+    }
+
+    #[inline(always)]
+    fn handle_extensions(path: PathBuf) -> CompressionAlgorithm {
+        let extension = path
+            .extension()
+            .and_then(|ext| ext.to_str().map(|s| s.to_ascii_lowercase()))
+            .unwrap_or_default();
+
+        match extension.as_str() {
+            "ogg" | "oga" | "spx" | "mp3" | "ktx2" | "exr" | "basis" | "qoi" | "qoa" => {
+                CompressionAlgorithm::None
+            }
+            #[cfg(feature = "brotli")]
+            "ron" | "json" | "yml" | "yaml" | "toml" | "txt" | "ini" | "cfg" | "gltf" | "wgsl"
+            | "glsl" | "hlsl" | "vert" | "frag" | "vs" | "fs" | "lua" | "js" | "html" | "css"
+            | "xml" | "mtlx" | "usda" | "svg" => CompressionAlgorithm::Brotli,
+            _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
+        }
     }
 }
 

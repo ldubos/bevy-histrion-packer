@@ -1,24 +1,15 @@
 use std::{
     io::{Read, Seek, SeekFrom, Write},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use super::{compression::CompressionAlgorithm, encoder::Encoder, entry::Entry, header::Header};
-use crate::{
-    errors::Error,
-    utils::{get_meta_loader_settings, get_meta_loader_type_path},
-};
-
-pub type CompressionMethodFn = dyn Fn(&Path, &[u8]) -> CompressionAlgorithm;
+use crate::errors::Error;
 
 /// Configure a [`Writer`] used to generate HPAK archive.
 pub struct WriterBuilder<W: Write> {
-    /// The compression method used for entries metadata.
-    pub(super) meta_compression: CompressionAlgorithm,
-    /// The callback used to determine the compression method used for entries data.
-    /// Takes the file path and metadata bytes to returns the compression method.
-    pub(super) data_compression_fn: &'static CompressionMethodFn,
     pub(super) output: W,
+    pub(super) meta_compression: CompressionAlgorithm,
 }
 
 impl<W: Write> WriterBuilder<W> {
@@ -28,7 +19,6 @@ impl<W: Write> WriterBuilder<W> {
             meta_compression: CompressionAlgorithm::Brotli,
             #[cfg(not(feature = "brotli"))]
             meta_compression: DEFAULT_FALLBACK_COMPRESSION_METHOD,
-            data_compression_fn: &default_data_compression_fn,
             output,
         }
     }
@@ -38,92 +28,19 @@ impl<W: Write> WriterBuilder<W> {
         self
     }
 
-    pub fn data_compression_fn(
-        mut self,
-        data_compression_fn: &'static CompressionMethodFn,
-    ) -> Self {
-        self.data_compression_fn = data_compression_fn;
-        self
-    }
-
     pub fn build(self) -> Result<Writer<W>, Error> {
         Writer::init(self)
     }
 }
 
 #[cfg(feature = "deflate")]
-const DEFAULT_FALLBACK_COMPRESSION_METHOD: CompressionAlgorithm = CompressionAlgorithm::Deflate;
-#[cfg(all(not(feature = "deflate"), feature = "gzip"))]
-const DEFAULT_FALLBACK_COMPRESSION_METHOD: CompressionAlgorithm = CompressionAlgorithm::Gzip;
-#[cfg(all(not(feature = "deflate"), not(feature = "gzip"), feature = "zlib"))]
-const DEFAULT_FALLBACK_COMPRESSION_METHOD: CompressionAlgorithm = CompressionAlgorithm::Zlib;
-#[cfg(all(not(feature = "deflate"), not(feature = "gzip"), not(feature = "zlib"),))]
-const DEFAULT_FALLBACK_COMPRESSION_METHOD: CompressionAlgorithm = CompressionAlgorithm::None;
-
-fn default_data_compression_fn(path: &Path, metadata: &[u8]) -> CompressionAlgorithm {
-    if let Ok(loader_type) = get_meta_loader_type_path(metadata) {
-        match loader_type.as_str() {
-            #[cfg(feature = "brotli")]
-            "bevy_render::render_resource::shader::ShaderLoader" => {
-                return CompressionAlgorithm::Brotli;
-            }
-            "bevy_render::texture::image_loader::ImageLoader" => {
-                return handle_image_loader(metadata);
-            }
-            _ => {}
-        }
-    }
-
-    handle_extensions(path.into())
-}
-
-#[inline(always)]
-fn handle_image_loader(meta: &[u8]) -> CompressionAlgorithm {
-    use bevy::render::texture::{ImageFormat, ImageFormatSetting, ImageLoader};
-
-    match get_meta_loader_settings::<ImageLoader>(meta) {
-        Ok(settings) => match settings.format {
-            ImageFormatSetting::Format(format) => match format {
-                // Don't compress images that already greatly benefits from compression and/or can
-                // be decompressed directly by the GPU to avoid unnecessary CPU
-                // overhead during asset loading.
-                ImageFormat::OpenExr | ImageFormat::Basis | ImageFormat::Ktx2 => {
-                    CompressionAlgorithm::None
-                }
-                _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
-            },
-            _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
-        },
-        _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
-    }
-}
-
-#[inline(always)]
-fn handle_extensions(path: PathBuf) -> CompressionAlgorithm {
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str().map(|s| s.to_ascii_lowercase()))
-        .unwrap_or_default();
-
-    match extension.as_str() {
-        "ogg" | "oga" | "spx" | "mp3" | "ktx2" | "exr" | "basis" | "qoi" | "qoa" => {
-            CompressionAlgorithm::None
-        }
-        #[cfg(feature = "brotli")]
-        "ron" | "json" | "yml" | "yaml" | "toml" | "txt" | "ini" | "cfg" | "gltf" | "wgsl"
-        | "glsl" | "hlsl" | "vert" | "frag" | "vs" | "fs" | "lua" | "js" | "html" | "css"
-        | "xml" | "mtlx" | "usda" => CompressionAlgorithm::Brotli,
-        _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
-    }
-}
+pub const DEFAULT_FALLBACK_COMPRESSION_METHOD: CompressionAlgorithm = CompressionAlgorithm::Deflate;
+#[cfg(not(feature = "deflate"))]
+pub const DEFAULT_FALLBACK_COMPRESSION_METHOD: CompressionAlgorithm = CompressionAlgorithm::None;
 
 pub struct Writer<W: Write> {
     /// The compression method used for entries metadata.
-    metadata_compression_method: CompressionAlgorithm,
-    /// The callback used to determine the compression method used for entries data.
-    /// Takes the file path, a loader's type path and metadata bytes and returns the compression
-    /// method.
-    data_compression_fn: &'static CompressionMethodFn,
+    meta_compression: CompressionAlgorithm,
     output: W,
     temp: tempfile::NamedTempFile,
     offset: u64,
@@ -134,8 +51,7 @@ pub struct Writer<W: Write> {
 impl<W: Write> Writer<W> {
     pub(super) fn init(config: WriterBuilder<W>) -> Result<Writer<W>, Error> {
         Ok(Writer {
-            metadata_compression_method: config.meta_compression,
-            data_compression_fn: config.data_compression_fn,
+            meta_compression: config.meta_compression,
             output: config.output,
             temp: tempfile::NamedTempFile::new()?,
             offset: Header::SIZE,
@@ -145,7 +61,13 @@ impl<W: Write> Writer<W> {
     }
 
     /// Add an entry to the archive.
-    pub fn add_entry<M, D>(&mut self, path: &Path, meta: &mut M, data: &mut D) -> Result<(), Error>
+    pub fn add_entry<M, D>(
+        &mut self,
+        path: &Path,
+        meta: &mut M,
+        data: &mut D,
+        compression_method: CompressionAlgorithm,
+    ) -> Result<(), Error>
     where
         M: Read,
         D: Read,
@@ -154,14 +76,7 @@ impl<W: Write> Writer<W> {
             return Err(Error::CannotAddEntryAfterFinalize);
         }
 
-        let mut meta_bytes = Vec::new();
-        meta.read_to_end(&mut meta_bytes)?;
-
-        let compression_method = (self.data_compression_fn)(path, &meta_bytes);
-
-        let meta_size = self
-            .metadata_compression_method
-            .compress(&mut meta_bytes.as_slice(), &mut self.temp)? as u64;
+        let meta_size = self.meta_compression.compress(meta, &mut self.temp)? as u64;
         let data_size = compression_method.compress(data, &mut self.temp)? as u64;
 
         let entry = Entry::new(compression_method, self.offset, meta_size, data_size);
@@ -196,7 +111,7 @@ impl<W: Write> Writer<W> {
     }
 
     fn write_header(&mut self) -> Result<(), Error> {
-        let bytes = Header::new(self.metadata_compression_method, self.offset).encode();
+        let bytes = Header::new(self.meta_compression, self.offset).encode();
         self.output.write_all(&bytes)?;
         Ok(())
     }
@@ -211,7 +126,6 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = WriterBuilder::new(&mut output)
             .meta_compression(CompressionAlgorithm::None)
-            .data_compression_fn(&|_, _| CompressionAlgorithm::None)
             .build()
             .unwrap();
 
@@ -223,10 +137,20 @@ mod tests {
         let data_2 = b"data_2";
 
         writer
-            .add_entry(path_1, &mut meta_1.as_slice(), &mut data_1.as_slice())
+            .add_entry(
+                path_1,
+                &mut meta_1.as_slice(),
+                &mut data_1.as_slice(),
+                CompressionAlgorithm::None,
+            )
             .unwrap();
         writer
-            .add_entry(path_2, &mut meta_2.as_slice(), &mut data_2.as_slice())
+            .add_entry(
+                path_2,
+                &mut meta_2.as_slice(),
+                &mut data_2.as_slice(),
+                CompressionAlgorithm::None,
+            )
             .unwrap();
         writer.finish().unwrap();
 
@@ -274,7 +198,6 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = WriterBuilder::new(&mut output)
             .meta_compression(CompressionAlgorithm::Deflate)
-            .data_compression_fn(&|_, _| CompressionAlgorithm::Deflate)
             .build()
             .unwrap();
 
@@ -303,10 +226,20 @@ mod tests {
             .unwrap() as u64;
 
         writer
-            .add_entry(path_1, &mut meta_1.as_slice(), &mut data_1.as_slice())
+            .add_entry(
+                path_1,
+                &mut meta_1.as_slice(),
+                &mut data_1.as_slice(),
+                CompressionAlgorithm::Deflate,
+            )
             .unwrap();
         writer
-            .add_entry(path_2, &mut meta_2.as_slice(), &mut data_2.as_slice())
+            .add_entry(
+                path_2,
+                &mut meta_2.as_slice(),
+                &mut data_2.as_slice(),
+                CompressionAlgorithm::Deflate,
+            )
             .unwrap();
         writer.finish().unwrap();
 

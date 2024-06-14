@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use bevy::{asset::io::AssetReaderError, utils::thiserror};
+use bevy::asset::io::AssetReaderError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]

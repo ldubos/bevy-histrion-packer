@@ -1,4 +1,4 @@
-use std::{io::Read, io::Write};
+use std::io::{Read, Write};
 
 use flate2::Compression;
 
@@ -15,12 +15,6 @@ pub enum CompressionAlgorithm {
     /// Uses deflate from [Falte2](https://crates.io/crates/flate2), fast decompression speed for an average compression ratio.
     #[cfg(feature = "deflate")]
     Deflate = 1,
-    /// Uses gzip from [Flate2](https://crates.io/crates/flate2)
-    #[cfg(feature = "gzip")]
-    Gzip = 2,
-    /// Uses zlib from [Flate2](https://crates.io/crates/flate2)
-    #[cfg(feature = "zlib")]
-    Zlib = 3,
     /// Uses [Brotli](https://crates.io/crates/brotli), high compression ratio but slower decompression speed.
     /// Works best for text like json, toml, ron, etc.
     #[cfg(feature = "brotli")]
@@ -38,16 +32,6 @@ impl CompressionAlgorithm {
             #[cfg(feature = "deflate")]
             CompressionAlgorithm::Deflate => {
                 let mut compressor = flate2::read::DeflateEncoder::new(reader, Compression::new(5));
-                std::io::copy(&mut compressor, writer)? as usize
-            }
-            #[cfg(feature = "gzip")]
-            CompressionAlgorithm::Gzip => {
-                let mut compressor = flate2::read::GzEncoder::new(reader, Compression::new(5));
-                std::io::copy(&mut compressor, writer)? as usize
-            }
-            #[cfg(feature = "zlib")]
-            CompressionAlgorithm::Zlib => {
-                let mut compressor = flate2::read::ZlibEncoder::new(reader, Compression::new(5));
                 std::io::copy(&mut compressor, writer)? as usize
             }
             #[cfg(feature = "brotli")]
@@ -72,10 +56,6 @@ impl Encoder for CompressionAlgorithm {
             0 => Ok(CompressionAlgorithm::None),
             #[cfg(feature = "deflate")]
             1 => Ok(CompressionAlgorithm::Deflate),
-            #[cfg(feature = "gzip")]
-            2 => Ok(CompressionAlgorithm::Gzip),
-            #[cfg(feature = "zlib")]
-            3 => Ok(CompressionAlgorithm::Zlib),
             #[cfg(feature = "brotli")]
             4 => Ok(CompressionAlgorithm::Brotli),
             _ => Err(Error::InvalidFileFormat),
