@@ -85,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-It's also possible to have more control over the packing process with the`Writer`:
+It's also possible to have more control over the packing process with `Writer`:
 
 ```rust
 // build.rs
