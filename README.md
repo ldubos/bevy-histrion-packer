@@ -5,9 +5,7 @@
 [![Crate](https://img.shields.io/crates/v/bevy-histrion-packer.svg)](https://crates.io/crates/bevy-histrion-packer)
 
 > [!WARNING]
-> This crate is in early development and it's API may change in the future.
->
-> The purpose of this crate is mainly to pack game assets for the release build, not for development.
+> This crate is in early development, and its API may change in the future.
 
 A Bevy plugin to allows to efficiently pack all game assets, such as textures, audio files, and other resources, into a single common PAK like file format.
 
@@ -25,97 +23,115 @@ By default, the `pack_assets_folder` function compress metadata with Brotli and 
 
 Pack assets folder with `pack_assets_folder` function:
 
+```toml
+# Cargo.toml
+
+[dependencies]
+bevy = "0.14.0-rc.2"
+bevy-histrion-packer = "0.4.0-rc.1"
+
+[build-dependencies]
+bevy = { version = "0.14.0-rc.2", features = [
+  "asset_processor",
+  "file_watcher",
+  "embedded_watcher",
+] }
+bevy-histrion-packer = { version = "0.4.0-rc.1", features = [
+  "writer",
+] }
+```
+
 ```rust
 // build.rs
-use std::path::Path;
-
-use bevy::{
-    app::{AppExit, ScheduleRunnerPlugin},
-    asset::processor::AssetProcessor,
-    prelude::*,
-};
-use bevy_histrion_packer::pack_assets_folder;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // delete the imported_assets folder
-    let _ = std::fs::remove_dir_all(&PathBuf::from("imported_assets"));
+    // only run this code for release builds
+    #[cfg(not(debug_assertions))]
+    {
+        use bevy::{app::ScheduleRunnerPlugin, prelude::*};
+        use bevy_histrion_packer::pack_assets_folder;
+        use std::path::Path;
 
-    // generate the processed assets during build time
-    let mut app = App::new();
+        let imported_assets = Path::new("imported_assets");
 
-    app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(
-        std::time::Duration::from_millis(16),
-    )))
-    .add_plugins(bevy::asset::AssetPlugin {
-        mode: AssetMode::Processed,
-        ..Default::default()
-    })
-    .init_asset::<Shader>()
-    .init_asset_loader::<bevy::render::render_resource::ShaderLoader>()
-    .add_plugins(bevy::render::texture::ImagePlugin::default())
-    .add_plugins(bevy::pbr::PbrPlugin::default())
-    .add_plugins(bevy::gltf::GltfPlugin::default())
-    .add_systems(
-        Update,
-        |asset_processor: Res<AssetProcessor>, mut exit_tx: EventWriter<AppExit>| {
-            match bevy::tasks::block_on(asset_processor.get_state()) {
-                bevy::asset::processor::ProcessorState::Finished => {
-                    exit_tx.send(AppExit);
-                }
-                _ => {}
-            }
-        },
-    );
+        // delete the imported_assets folder
+        if imported_assets.exists() {
+            std::fs::remove_dir_all(imported_assets)?;
+        }
 
-    app.run();
+        // generate the processed assets during build time
+        let mut app = App::new();
 
-    // pack the assets folder
-    let source = Path::new("imported_assets/Default");
-    let destination = Path::new("assets.hpak");
+        app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_once()))
+            .add_plugins(bevy::asset::AssetPlugin {
+                mode: AssetMode::Processed,
+                ..Default::default()
+            })
+            .init_asset::<Shader>()
+            .init_asset_loader::<bevy::render::render_resource::ShaderLoader>()
+            .add_plugins(bevy::render::texture::ImagePlugin::default())
+            .add_plugins(bevy::pbr::PbrPlugin::default())
+            .add_plugins(bevy::gltf::GltfPlugin::default());
 
-    pack_assets_folder(&source, &destination)?;
+        app.run();
+
+        // pack the assets folder
+        let source = Path::new("imported_assets/Default");
+        let destination = Path::new("assets.hpak");
+
+        pack_assets_folder(&source, &destination)?;
+    }
+
+    Ok(())
 }
 ```
 
-It's possible to do it manually with the `Writer`:
+It's also possible to have more control over the packing process with the`Writer`:
 
 ```rust
 // build.rs
-use std::fs::OpenOptions;
-use std::path::Path;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let destination = Path::new("assets.hpak");
+    // only run this code for release builds
+    #[cfg(not(debug_assertions))]
+    {
+        use bevy_histrion_packer::{CompressionAlgorithm, WriterBuilder};
+        use std::fs::{File, OpenOptions};
+        use std::path::Path;
 
-    let mut writer = WriterBuilder::new(
-        OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(&destination)?,
-    )
-    .meta_compression(CompressionAlgorithm::Brotli)
-    .build()?;
+        let destination = Path::new("assets.hpak");
 
-    let mut data = File::open("texture_1.png")?;
-    let mut meta = File::open("texture_1.png.meta")?;
+        let mut writer = WriterBuilder::new(
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open(&destination)?,
+        )
+        .meta_compression(CompressionAlgorithm::Brotli)
+        .build()?;
 
-    writer.add_entry(
-        &mut meta,
-        &mut data,
-        CompressionAlgorithm::Deflate,
-    )?;
+        let mut data = File::open("assets/texture_1.png")?;
+        let mut meta = File::open("assets/texture_1.png.meta")?;
 
-    // ...
+        writer.add_entry(
+            Path::new("my_texture_path.png"),
+            &mut meta,
+            &mut data,
+            CompressionAlgorithm::Deflate,
+        )?;
 
-    writer.finish()?;
+        // ...
+
+        writer.finish()?;
+    }
+
+    Ok(())
 }
 ```
 
 ### Loading assets
 
 ```rust
-// src/main.rs
+// main.rs
 use bevy::prelude::*;
 use bevy_histrion_packer::HistrionPackerPlugin;
 
