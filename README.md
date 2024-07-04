@@ -27,16 +27,16 @@ Pack assets folder with `pack_assets_folder` function:
 # Cargo.toml
 
 [dependencies]
-bevy = "0.14.0-rc.2"
-bevy-histrion-packer = "0.4.0-rc.1"
+bevy = "0.14"
+bevy-histrion-packer = "0.4"
 
 [build-dependencies]
-bevy = { version = "0.14.0-rc.2", features = [
+bevy = { version = "0.14", features = [
   "asset_processor",
   "file_watcher",
   "embedded_watcher",
 ] }
-bevy-histrion-packer = { version = "0.4.0-rc.1", features = [
+bevy-histrion-packer = { version = "0.4", features = [
   "writer",
 ] }
 ```
@@ -169,7 +169,7 @@ fn main() {
 
 | bevy          | bevy-histrion-packer |
 |---------------|----------------------|
-| `0.14.0-rc.2` | `0.4-rc.1`           |
+| `0.14`        | `0.4`                |
 | `0.13`        | `0.2-0.3`            |
 | `0.12`        | `0.1`                |
 
