@@ -73,7 +73,7 @@ impl<W: Write> Writer<W> {
         let meta_size = self.meta_compression.compress(meta, &mut self.temp_data)? as u64;
         let data_size = compression_method.compress(data, &mut self.temp_data)? as u64;
 
-        let entry = Entry::new(compression_method, self.offset as u64, meta_size, data_size);
+        let entry = Entry::new(compression_method, self.offset, meta_size, data_size);
         let entry_path = path.to_string_lossy().to_string();
         let entry_size = entry_path.len() as u64 + Entry::SIZE as u64;
 

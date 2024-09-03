@@ -95,7 +95,7 @@ impl Encode for String {
 impl Decode for String {
     fn decode<R: Read>(reader: &mut R) -> Result<Self, Error> {
         Vec::<u8>::decode(reader)
-            .and_then(|bytes| String::from_utf8(bytes).map_err(|e| Error::InvalidUtf8(e.into())))
+            .and_then(|bytes| String::from_utf8(bytes).map_err(Error::InvalidUtf8))
     }
 }
 
@@ -112,6 +112,7 @@ impl<T, const N: usize> Decode for [T; N]
 where
     T: Decode,
 {
+    #[allow(clippy::uninit_assumed_init)]
     fn decode<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let mut arr: [T; N] = unsafe { MaybeUninit::uninit().assume_init() };
 

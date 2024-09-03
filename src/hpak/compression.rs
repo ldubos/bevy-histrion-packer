@@ -12,35 +12,6 @@ pub enum CompressionAlgorithm {
     Deflate = 1,
 }
 
-struct TrackWriteSize<W: std::io::Write> {
-    inner: W,
-    written: u64,
-}
-
-impl<W: std::io::Write> TrackWriteSize<W> {
-    fn new(inner: W) -> Self {
-        TrackWriteSize { inner, written: 0 }
-    }
-}
-
-impl<W: std::io::Write> std::io::Write for TrackWriteSize<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let written = self.inner.write(buf)?;
-        self.written += written as u64;
-        Ok(written)
-    }
-
-    fn write_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
-        let written = self.inner.write_vectored(bufs)?;
-        self.written += written as u64;
-        Ok(written)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.flush()
-    }
-}
-
 impl CompressionAlgorithm {
     pub fn compress<R, W>(&self, reader: &mut R, writer: &mut W) -> Result<usize, Error>
     where

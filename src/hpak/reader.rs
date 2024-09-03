@@ -13,16 +13,14 @@ use bevy::{
     utils::{ConditionalSendFuture, HashMap},
 };
 use futures_io::AsyncSeek;
-use futures_lite::{
-    io::{AsyncRead, BufReader, Cursor},
-    Future,
-};
+use futures_lite::io::{AsyncRead, BufReader, Cursor};
 
 use crate::{errors::Error, CompressionAlgorithm, Decode};
 
 use super::{entry::Entry, header::Header};
 
 pub struct HPakAssetsReader {
+    #[allow(dead_code)]
     source_file: File,
     source: Mmap,
     header: Header,
@@ -138,7 +136,7 @@ impl AssetReader for HPakAssetsReader {
     fn is_directory<'a>(
         &'a self,
         path: &'a Path,
-    ) -> impl ConditionalSendFuture + Future<Output = Result<bool, bevy::asset::io::AssetReaderError>>
+    ) -> impl ConditionalSendFuture<Output = Result<bool, bevy::asset::io::AssetReaderError>>
     {
         Box::pin(async move {
             let as_folder = path.join("");

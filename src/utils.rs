@@ -78,7 +78,7 @@ mod writer {
     ///
     /// app.run();
     /// ```
-    pub fn get_processing_app<M>() -> Result<bevy::app::App, Box<dyn std::error::Error>> {
+    pub fn get_processing_app() -> Result<bevy::app::App, Box<dyn std::error::Error>> {
         use bevy::app::ScheduleRunnerPlugin;
         use bevy::prelude::*;
 
@@ -126,7 +126,7 @@ mod writer {
                 .write(true)
                 .truncate(true)
                 .create(true)
-                .open(&destination)?,
+                .open(destination)?,
         )
         .build()?;
 
@@ -153,9 +153,8 @@ mod writer {
                 let compression_method =
                     if let Ok(loader_type) = get_meta_loader_type_path(&meta_buffer) {
                         match loader_type.as_str() {
-                            #[cfg(feature = "brotli")]
                             "bevy_render::render_resource::shader::ShaderLoader" => {
-                                CompressionAlgorithm::Brotli
+                                CompressionAlgorithm::Deflate
                             }
                             "bevy_render::texture::image_loader::ImageLoader" => {
                                 handle_image_loader(&meta_buffer)
@@ -185,15 +184,12 @@ mod writer {
 
         match get_meta_loader_settings::<ImageLoader>(meta) {
             Ok(settings) => match settings.format {
-                ImageFormatSetting::Format(format) => match format {
-                    // Don't compress images that already greatly benefits from compression and/or can
-                    // be decompressed directly by the GPU to avoid unnecessary CPU
-                    // overhead during asset loading.
-                    ImageFormat::OpenExr | ImageFormat::Basis | ImageFormat::Ktx2 => {
-                        CompressionAlgorithm::None
-                    }
-                    _ => CompressionAlgorithm::Deflate,
-                },
+                // Don't compress images that already greatly benefits from compression and/or can
+                // be decompressed directly by the GPU to avoid unnecessary CPU
+                // overhead during asset loading.
+                ImageFormatSetting::Format(
+                    ImageFormat::OpenExr | ImageFormat::Basis | ImageFormat::Ktx2,
+                ) => CompressionAlgorithm::None,
                 _ => CompressionAlgorithm::Deflate,
             },
             _ => CompressionAlgorithm::Deflate,
