@@ -1,26 +1,30 @@
+use memmap2::Mmap;
 use std::{
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom},
+    io::SeekFrom,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
 
 use bevy::{
     asset::io::{AssetReader, AssetReaderError},
+    render::render_resource::encase::internal::BufferRef,
     utils::{ConditionalSendFuture, HashMap},
 };
-use blocking::Task;
 use futures_io::AsyncSeek;
-use futures_lite::{io::AsyncRead, ready, Future, FutureExt};
+use futures_lite::{
+    io::{AsyncRead, BufReader, Cursor},
+    Future,
+};
 
-use crate::{errors::Error, CompressionAlgorithm};
+use crate::{errors::Error, CompressionAlgorithm, Decode};
 
-use super::{encoder::Encoder, entry::Entry, header::Header};
+use super::{entry::Entry, header::Header};
 
 pub struct HPakAssetsReader {
-    source: Arc<File>,
+    source_file: File,
+    source: Mmap,
     header: Header,
     entries: HashMap<PathBuf, Entry>,
     directories: HashMap<PathBuf, Vec<PathBuf>>,
@@ -28,27 +32,11 @@ pub struct HPakAssetsReader {
 
 impl HPakAssetsReader {
     pub fn new(path: &Path) -> Result<Self, Error> {
-        let mut source = {
-            #[cfg(windows)]
-            {
-                use std::os::windows::fs::OpenOptionsExt;
-
-                OpenOptions::new()
-                    .custom_flags(0x10000000 /* FILE_FLAG_RANDOM_ACCESS */)
-                    .read(true)
-                    .open(path)?
-            }
-
-            #[cfg(unix)]
-            OpenOptions::new().read(true).open(path)?
-        };
+        let mut source = OpenOptions::new().read(true).open(path)?;
         let mut entries = HashMap::new();
         let mut directories = HashMap::new();
 
         let header = Header::decode(&mut source)?;
-
-        // go to the entry table
-        source.seek(SeekFrom::Start(header.entry_table_offset))?;
 
         for (path, entry) in Vec::<(String, Entry)>::decode(&mut source)? {
             let path: PathBuf = path.into();
@@ -70,8 +58,11 @@ impl HPakAssetsReader {
             entries.insert(path, entry);
         }
 
+        let source_map = unsafe { Mmap::map(&source)? };
+
         Ok(Self {
-            source: Arc::new(source),
+            source_file: source,
+            source: source_map,
             header,
             entries,
             directories,
@@ -96,7 +87,7 @@ impl HPakAssetsReader {
         };
 
         Ok(EntryReader::new(
-            self.source.clone(),
+            &self.source,
             offset,
             length,
             compression_method,
@@ -160,49 +151,64 @@ impl AssetReader for HPakAssetsReader {
     }
 }
 
-pub enum EntryState {
-    Busy(Task<std::io::Result<Vec<u8>>>),
-    Reading(std::io::Cursor<Vec<u8>>),
-}
+pub trait AsyncReadPosition: AsyncRead + Position {}
 
-pub struct EntryReader(EntryState);
+impl<T: AsyncRead + Position> AsyncReadPosition for T {}
+
+pub struct EntryReader {
+    reader: Box<dyn AsyncReadPosition + Unpin + Send + Sync>,
+}
 
 impl EntryReader {
     #[inline]
     pub fn new(
-        file: Arc<File>,
+        source: &Mmap,
         offset: u64,
         length: u64,
         compression_method: CompressionAlgorithm,
     ) -> Self {
-        let file = file.clone();
+        let mut buffer = Vec::with_capacity(length as usize);
+        source.read_slice(offset as usize, &mut buffer);
 
-        Self(EntryState::Busy(blocking::unblock(move || {
-            let mut buffer = vec![0; length as usize];
-            read_exact_at(&file, &mut buffer, offset)?;
-
-            let buffer = match compression_method {
-                CompressionAlgorithm::None => buffer,
-                #[cfg(feature = "deflate")]
+        Self {
+            reader: match compression_method {
+                CompressionAlgorithm::None => Box::new(Cursor::new(buffer)),
                 CompressionAlgorithm::Deflate => {
-                    let mut decoded = Vec::new();
-                    let mut decoder =
-                        flate2::read::DeflateDecoder::new(std::io::Cursor::new(&buffer));
-                    decoder.read_to_end(&mut decoded)?;
-                    decoded
+                    let reader = BufReader::new(Cursor::new(buffer));
+                    Box::new(async_compression::futures::bufread::DeflateDecoder::new(
+                        reader,
+                    ))
                 }
-                #[cfg(feature = "brotli")]
-                CompressionAlgorithm::Brotli => {
-                    let mut decoded = Vec::new();
-                    let mut decoder =
-                        brotli::Decompressor::new(std::io::Cursor::new(&buffer), 4096);
-                    decoder.read_to_end(&mut decoded)?;
-                    decoded
-                }
-            };
+            },
+        }
+    }
+}
 
-            Ok(buffer)
-        })))
+pub trait Position {
+    fn position(&self) -> u64;
+}
+
+impl<T: Position> Position for Box<T> {
+    fn position(&self) -> u64 {
+        (**self).position()
+    }
+}
+
+impl Position for Cursor<Vec<u8>> {
+    fn position(&self) -> u64 {
+        self.position()
+    }
+}
+
+impl Position for async_compression::futures::bufread::DeflateDecoder<BufReader<Cursor<Vec<u8>>>> {
+    fn position(&self) -> u64 {
+        self.get_ref().position()
+    }
+}
+
+impl Position for BufReader<Cursor<Vec<u8>>> {
+    fn position(&self) -> u64 {
+        self.get_ref().position()
     }
 }
 
@@ -212,18 +218,7 @@ impl AsyncRead for EntryReader {
         cx: &mut Context<'_>,
         buffer: &mut [u8],
     ) -> Poll<std::io::Result<usize>> {
-        loop {
-            match &mut self.0 {
-                EntryState::Busy(task) => {
-                    let result = ready!(task.poll(cx)?);
-                    self.0 = EntryState::Reading(std::io::Cursor::new(result));
-                }
-                EntryState::Reading(cursor) => {
-                    let n = cursor.read(buffer)?;
-                    return Poll::Ready(Ok(n));
-                }
-            }
-        }
+        Pin::new(&mut self.reader).poll_read(cx, buffer)
     }
 }
 
@@ -233,17 +228,20 @@ impl AsyncSeek for EntryReader {
         cx: &mut Context<'_>,
         pos: SeekFrom,
     ) -> Poll<Result<u64, std::io::Error>> {
-        loop {
-            match &mut self.0 {
-                EntryState::Busy(task) => {
-                    let result = ready!(task.poll(cx)?);
-                    self.0 = EntryState::Reading(std::io::Cursor::new(result));
-                }
-                EntryState::Reading(cursor) => {
-                    let n = cursor.seek(pos)?;
-                    return Poll::Ready(Ok(n));
+        match pos {
+            SeekFrom::Current(pos) if pos >= 0 => {
+                let mut phantom_buffer = Vec::with_capacity(pos as usize);
+
+                match Pin::new(&mut self.reader).poll_read(cx, &mut phantom_buffer) {
+                    Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
+                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(self.reader.position())),
+                    Poll::Pending => Poll::Pending,
                 }
             }
+            _ => Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "only seeking forward from current position is supported",
+            ))),
         }
     }
 }
@@ -256,38 +254,4 @@ impl futures_lite::Stream for DirStream {
     fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Poll::Ready(self.get_mut().0.pop())
     }
-}
-
-#[inline]
-#[cfg(windows)]
-fn read_exact_at(file: &File, mut buf: &mut [u8], mut offset: u64) -> std::io::Result<()> {
-    use std::os::windows::fs::FileExt;
-
-    while !buf.is_empty() {
-        match file.seek_read(&mut buf, offset) {
-            Ok(0) => break,
-            Ok(n) => {
-                buf = &mut buf[n..];
-                offset += n as u64;
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
-        }
-    }
-
-    if !buf.is_empty() {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "failed to fill whole buffer",
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-#[inline]
-#[cfg(unix)]
-fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
-    use std::os::unix::fs::FileExt;
-    file.read_exact_at(buf, offset)
 }

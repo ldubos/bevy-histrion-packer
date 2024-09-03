@@ -1,7 +1,6 @@
 use crate::errors::Error;
 
 use super::compression::CompressionAlgorithm;
-use super::encoder::Encoder;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Header {
@@ -11,36 +10,33 @@ pub struct Header {
     pub(crate) version: u16,
     /// The compression method for entries' metadata
     pub(crate) metadata_compression_method: CompressionAlgorithm,
-    /// The position of the entry table
-    pub(crate) entry_table_offset: u64,
 }
 
 impl Header {
-    pub const SIZE: u64 = crate::MAGIC_LEN as u64 + 2 + 1 + 8;
+    pub(crate) const SIZE: usize = crate::MAGIC_LEN + 2 + 1;
 
-    #[allow(dead_code)]
-    pub fn new(metadata_compression_method: CompressionAlgorithm, entry_table_offset: u64) -> Self {
+    pub fn new(metadata_compression_method: CompressionAlgorithm) -> Self {
         Self {
             magic: *crate::MAGIC,
             version: crate::VERSION,
             metadata_compression_method,
-            entry_table_offset,
         }
     }
 }
 
-impl Encoder for Header {
+impl crate::Encode for Header {
     fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(Self::SIZE as usize);
+        let mut bytes = Vec::with_capacity(Self::SIZE);
 
         bytes.extend_from_slice(&self.magic.encode());
         bytes.extend_from_slice(&self.version.encode());
         bytes.extend_from_slice(&self.metadata_compression_method.encode());
-        bytes.extend_from_slice(&self.entry_table_offset.encode());
 
         bytes
     }
+}
 
+impl crate::Decode for Header {
     fn decode<R: std::io::prelude::Read>(reader: &mut R) -> Result<Self, Error> {
         let magic = <[u8; crate::MAGIC_LEN]>::decode(reader)?;
 
@@ -54,22 +50,19 @@ impl Encoder for Header {
             return Err(Error::BadVersion(version));
         }
 
-        Ok(Self {
-            magic,
-            version,
-            metadata_compression_method: CompressionAlgorithm::decode(reader)?,
-            entry_table_offset: u64::decode(reader)?,
-        })
+        Ok(Self::new(CompressionAlgorithm::decode(reader)?))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::{Decode, Encode, MAGIC, MAGIC_LEN, VERSION};
+
     use super::*;
 
     #[test]
     fn test_header_encode_decode() {
-        let header = Header::new(CompressionAlgorithm::Deflate, 42);
+        let header = Header::new(CompressionAlgorithm::Deflate);
         let bytes = header.encode();
         let decoded = Header::decode(&mut bytes.as_slice()).unwrap();
 
@@ -79,6 +72,26 @@ mod tests {
             header.metadata_compression_method,
             decoded.metadata_compression_method
         );
-        assert_eq!(header.entry_table_offset, decoded.entry_table_offset);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_header_decode_bad_magic() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&[0u8; MAGIC_LEN]);
+        bytes.extend_from_slice(&[0u8; 2]);
+        bytes.extend_from_slice(&[1u8]);
+
+        Header::decode(&mut bytes.as_slice()).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_header_decode_bad_version() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MAGIC);
+        bytes.extend_from_slice(&(VERSION - 1).encode());
+
+        Header::decode(&mut bytes.as_slice()).unwrap();
     }
 }

@@ -17,6 +17,8 @@ pub enum Error {
     InvalidAssetMeta(String),
     #[error("encountered an io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("encountered an invalid utf8 error: {0}")]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
 }
 
 impl Error {

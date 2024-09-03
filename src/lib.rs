@@ -3,12 +3,13 @@
 #[cfg(not(any(windows, unix)))]
 compile_error!("bevy-histrion-packer is not supported on this platform");
 
+mod encoding;
 pub mod errors;
 mod hpak;
 pub mod utils;
 
 /// The fomrat version of the HPAK file format.
-pub const VERSION: u16 = 3;
+pub const VERSION: u16 = 4;
 
 /// The length of the HPAK magic.
 pub const MAGIC_LEN: usize = 4;
@@ -22,6 +23,7 @@ use bevy::{
     asset::io::{AssetSource, AssetSourceId},
     prelude::*,
 };
+pub(crate) use encoding::*;
 pub use hpak::compression::CompressionAlgorithm;
 pub use hpak::reader::HPakAssetsReader;
 

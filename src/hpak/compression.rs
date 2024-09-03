@@ -1,10 +1,6 @@
 use std::io::{Read, Write};
 
-use flate2::Compression;
-
 use crate::errors::Error;
-
-use super::encoder::Encoder;
 
 #[repr(u8)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,13 +8,37 @@ pub enum CompressionAlgorithm {
     /// No compression.
     #[default]
     None = 0,
-    /// Uses deflate from [Falte2](https://crates.io/crates/flate2), fast decompression speed for an average compression ratio.
-    #[cfg(feature = "deflate")]
+    /// Uses deflate from [flate2](https://crates.io/crates/flate2), fast decompression speed for an average compression ratio.
     Deflate = 1,
-    /// Uses [Brotli](https://crates.io/crates/brotli), high compression ratio but slower decompression speed.
-    /// Works best for text like json, toml, ron, etc.
-    #[cfg(feature = "brotli")]
-    Brotli = 4,
+}
+
+struct TrackWriteSize<W: std::io::Write> {
+    inner: W,
+    written: u64,
+}
+
+impl<W: std::io::Write> TrackWriteSize<W> {
+    fn new(inner: W) -> Self {
+        TrackWriteSize { inner, written: 0 }
+    }
+}
+
+impl<W: std::io::Write> std::io::Write for TrackWriteSize<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.write(buf)?;
+        self.written += written as u64;
+        Ok(written)
+    }
+
+    fn write_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
+        let written = self.inner.write_vectored(bufs)?;
+        self.written += written as u64;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 impl CompressionAlgorithm {
@@ -29,35 +49,29 @@ impl CompressionAlgorithm {
     {
         Ok(match self {
             CompressionAlgorithm::None => std::io::copy(reader, writer)? as usize,
-            #[cfg(feature = "deflate")]
             CompressionAlgorithm::Deflate => {
-                let mut compressor = flate2::read::DeflateEncoder::new(reader, Compression::new(5));
-                std::io::copy(&mut compressor, writer)? as usize
-            }
-            #[cfg(feature = "brotli")]
-            CompressionAlgorithm::Brotli => {
-                let mut compressor = brotli::CompressorReader::new(reader, 4096, 11, 21);
+                let mut compressor =
+                    flate2::read::DeflateEncoder::new(reader, flate2::Compression::new(9));
                 std::io::copy(&mut compressor, writer)? as usize
             }
         })
     }
 }
 
-impl Encoder for CompressionAlgorithm {
+impl crate::Encode for CompressionAlgorithm {
     fn encode(&self) -> Vec<u8> {
         vec![*self as u8]
     }
+}
 
+impl crate::Decode for CompressionAlgorithm {
     fn decode<R: std::io::prelude::Read>(reader: &mut R) -> Result<Self, Error> {
         let mut buf = [0u8; 1];
         reader.read_exact(&mut buf)?;
         let value = buf[0];
         match value {
             0 => Ok(CompressionAlgorithm::None),
-            #[cfg(feature = "deflate")]
             1 => Ok(CompressionAlgorithm::Deflate),
-            #[cfg(feature = "brotli")]
-            4 => Ok(CompressionAlgorithm::Brotli),
             _ => Err(Error::InvalidFileFormat),
         }
     }

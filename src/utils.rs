@@ -43,10 +43,7 @@ mod writer {
         path::{Path, PathBuf},
     };
 
-    use crate::{
-        hpak::writer::DEFAULT_FALLBACK_COMPRESSION_METHOD, utils::get_meta_loader_settings,
-        CompressionAlgorithm, WriterBuilder,
-    };
+    use crate::{utils::get_meta_loader_settings, CompressionAlgorithm, WriterBuilder};
 
     use super::get_meta_loader_type_path;
 
@@ -59,6 +56,53 @@ mod writer {
         extension.push(".meta");
         meta_path.set_extension(extension);
         meta_path
+    }
+
+    /// This function will create and return an headless bevy app with the `processed` asset mode.
+    ///
+    /// By default the app will have the following plugins:
+    /// - `bevy::asset::AssetPlugin` with the `processed` asset mode.
+    /// - `bevy::render::render_resource::ShaderLoader`
+    /// - `bevy::render::texture::ImagePlugin`
+    /// - `bevy::pbr::PbrPlugin`
+    /// - `bevy::gltf::GltfPlugin`
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use bevy_histrion_packer::utils::get_processing_app;
+    ///
+    /// let app = get_processing_app(DefaultPlugins).unwrap();
+    ///
+    /// // app.add_plugins(my_extra_assets_plugins);
+    ///
+    /// app.run();
+    /// ```
+    pub fn get_processing_app<M>() -> Result<bevy::app::App, Box<dyn std::error::Error>> {
+        use bevy::app::ScheduleRunnerPlugin;
+        use bevy::prelude::*;
+
+        let imported_assets = Path::new("imported_assets");
+
+        // delete the imported_assets folder
+        if imported_assets.exists() {
+            std::fs::remove_dir_all(imported_assets)?;
+        }
+
+        let mut app = App::new();
+
+        app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_once()))
+            .add_plugins(bevy::asset::AssetPlugin {
+                mode: AssetMode::Processed,
+                ..Default::default()
+            })
+            .init_asset::<Shader>()
+            .init_asset_loader::<bevy::render::render_resource::ShaderLoader>()
+            .add_plugins(bevy::render::texture::ImagePlugin::default())
+            .add_plugins(bevy::pbr::PbrPlugin::default())
+            .add_plugins(bevy::gltf::GltfPlugin::default());
+
+        Ok(app)
     }
 
     /// Read the `source` folder recursively and pack all it's assets into a HPAK file.
@@ -148,11 +192,11 @@ mod writer {
                     ImageFormat::OpenExr | ImageFormat::Basis | ImageFormat::Ktx2 => {
                         CompressionAlgorithm::None
                     }
-                    _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
+                    _ => CompressionAlgorithm::Deflate,
                 },
-                _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
+                _ => CompressionAlgorithm::Deflate,
             },
-            _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
+            _ => CompressionAlgorithm::Deflate,
         }
     }
 
@@ -167,11 +211,7 @@ mod writer {
             "ogg" | "oga" | "spx" | "mp3" | "ktx2" | "exr" | "basis" | "qoi" | "qoa" => {
                 CompressionAlgorithm::None
             }
-            #[cfg(feature = "brotli")]
-            "ron" | "json" | "yml" | "yaml" | "toml" | "txt" | "ini" | "cfg" | "gltf" | "wgsl"
-            | "glsl" | "hlsl" | "vert" | "frag" | "vs" | "fs" | "lua" | "js" | "html" | "css"
-            | "xml" | "mtlx" | "usda" | "svg" => CompressionAlgorithm::Brotli,
-            _ => DEFAULT_FALLBACK_COMPRESSION_METHOD,
+            _ => CompressionAlgorithm::Deflate,
         }
     }
 }
@@ -192,13 +232,13 @@ impl AssetLoader for DummyLoader {
 
     type Error = std::io::Error;
 
-    fn load<'a>(
+    async fn load<'a>(
         &'a self,
-        _reader: &'a mut bevy::asset::io::Reader,
+        _reader: &'a mut bevy::asset::io::Reader<'_>,
         _settings: &'a Self::Settings,
-        _load_context: &'a mut bevy::asset::LoadContext,
-    ) -> bevy::utils::BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
-        Box::pin(async move { Ok(()) })
+        _load_context: &'a mut bevy::asset::LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        Ok(())
     }
 }
 struct DummyProcessor<L: AssetLoader>(std::marker::PhantomData<L>);
@@ -208,15 +248,13 @@ impl<L: AssetLoader> Process for DummyProcessor<L> {
 
     type OutputLoader = L;
 
-    fn process<'a>(
+    async fn process<'a>(
         &'a self,
-        _context: &'a mut bevy::asset::processor::ProcessContext,
+        _context: &'a mut bevy::asset::processor::ProcessContext<'_>,
         _meta: AssetMeta<(), Self>,
         _writer: &'a mut bevy::asset::io::Writer,
-    ) -> bevy::utils::BoxedFuture<
-        'a,
-        Result<<Self::OutputLoader as AssetLoader>::Settings, bevy::asset::processor::ProcessError>,
-    > {
-        Box::pin(async move { Ok(<Self::OutputLoader as AssetLoader>::Settings::default()) })
+    ) -> Result<<Self::OutputLoader as AssetLoader>::Settings, bevy::asset::processor::ProcessError>
+    {
+        Ok(<Self::OutputLoader as AssetLoader>::Settings::default())
     }
 }

@@ -1,6 +1,6 @@
-use super::{compression::CompressionAlgorithm, encoder::Encoder};
+use super::compression::CompressionAlgorithm;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Entry {
     /// The compression method used for the entry's data.
     pub(crate) compression_method: CompressionAlgorithm,
@@ -13,9 +13,8 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub const SIZE: u64 = 1 + 8 + 8 + 8;
+    pub(crate) const SIZE: usize = 1 + 8 + 8 + 8;
 
-    #[allow(dead_code)]
     pub fn new(
         compression_method: CompressionAlgorithm,
         offset: u64,
@@ -31,9 +30,10 @@ impl Entry {
     }
 }
 
-impl Encoder for Entry {
+#[cfg(feature = "writer")]
+impl crate::Encode for Entry {
     fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(Self::SIZE as usize);
+        let mut bytes = Vec::with_capacity(Self::SIZE);
 
         bytes.extend_from_slice(&self.compression_method.encode());
         bytes.extend_from_slice(&self.offset.encode());
@@ -42,20 +42,23 @@ impl Encoder for Entry {
 
         bytes
     }
+}
 
+impl crate::Decode for Entry {
     fn decode<R: std::io::prelude::Read>(reader: &mut R) -> Result<Self, crate::errors::Error> {
-        Ok(Self {
-            compression_method: CompressionAlgorithm::decode(reader)?,
-            offset: u64::decode(reader)?,
-            meta_size: u64::decode(reader)?,
-            data_size: u64::decode(reader)?,
-        })
+        Ok(Self::new(
+            CompressionAlgorithm::decode(reader)?,
+            u64::decode(reader)?,
+            u64::decode(reader)?,
+            u64::decode(reader)?,
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Decode, Encode};
 
     #[test]
     fn test_entry_encode_decode() {
