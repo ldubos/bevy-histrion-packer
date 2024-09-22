@@ -50,18 +50,35 @@ impl Default for HistrionPackerMode {
 }
 
 pub struct HistrionPackerPlugin {
-    pub source: PathBuf,
+    pub source: String,
     pub mode: HistrionPackerMode,
 }
 
 impl Plugin for HistrionPackerPlugin {
     fn build(&self, app: &mut App) {
-        if !self.source.exists() || !self.source.is_file() {
+        let mut source = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(err) => {
+                bevy::log::error!("cannot get current executable path: {err}");
+                return;
+            }
+        };
+
+        if !source.exists() {
             bevy::log::error!("the source path does not exist or is not a file");
             return;
         }
 
-        let source = self.source.clone();
+        let mut source = match source.canonicalize() {
+            Ok(path) => path,
+            Err(err) => {
+                bevy::log::error!("cannot canonicalize current executable path: {err}");
+                return;
+            }
+        };
+
+        source.pop();
+        source.push(&self.source);
 
         match self.mode {
             HistrionPackerMode::Autoload(source_id) => {

@@ -33,8 +33,6 @@ bevy-histrion-packer = "0.4"
 [build-dependencies]
 bevy = { version = "0.14", features = [
   "asset_processor",
-  "file_watcher",
-  "embedded_watcher",
 ] }
 bevy-histrion-packer = { version = "0.4", features = [
   "writer",
