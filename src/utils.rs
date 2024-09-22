@@ -82,13 +82,6 @@ mod writer {
         use bevy::app::ScheduleRunnerPlugin;
         use bevy::prelude::*;
 
-        let imported_assets = Path::new("imported_assets");
-
-        // delete the imported_assets folder
-        if imported_assets.exists() {
-            std::fs::remove_dir_all(imported_assets)?;
-        }
-
         let mut app = App::new();
 
         app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_once()))
