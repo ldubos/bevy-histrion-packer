@@ -41,7 +41,10 @@ mod writer {
     use std::{
         fs::{File, OpenOptions},
         path::{Path, PathBuf},
+        time::Duration,
     };
+
+    use bevy::asset::processor::AssetProcessor;
 
     use crate::{utils::get_meta_loader_settings, CompressionAlgorithm, WriterBuilder};
 
@@ -84,16 +87,29 @@ mod writer {
 
         let mut app = App::new();
 
-        app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_once()))
-            .add_plugins(bevy::asset::AssetPlugin {
-                mode: AssetMode::Processed,
-                ..Default::default()
-            })
-            .init_asset::<Shader>()
-            .init_asset_loader::<bevy::render::render_resource::ShaderLoader>()
-            .add_plugins(bevy::render::texture::ImagePlugin::default())
-            .add_plugins(bevy::pbr::PbrPlugin::default())
-            .add_plugins(bevy::gltf::GltfPlugin::default());
+        app.add_plugins(
+            MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_millis(33))),
+        )
+        .add_plugins(bevy::asset::AssetPlugin {
+            mode: AssetMode::Processed,
+            ..Default::default()
+        })
+        .init_asset::<Shader>()
+        .init_asset_loader::<bevy::render::render_resource::ShaderLoader>()
+        .add_plugins(bevy::render::texture::ImagePlugin::default())
+        .add_plugins(bevy::pbr::PbrPlugin::default())
+        .add_plugins(bevy::gltf::GltfPlugin::default())
+        .add_systems(
+            Update,
+            |asset_processor: Res<AssetProcessor>, mut exit_tx: EventWriter<AppExit>| {
+                match bevy::tasks::block_on(asset_processor.get_state()) {
+                    bevy::asset::processor::ProcessorState::Finished => {
+                        exit_tx.send(AppExit::Success);
+                    }
+                    _ => {}
+                }
+            },
+        );
 
         Ok(app)
     }
