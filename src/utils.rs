@@ -114,22 +114,16 @@ mod writer {
         Ok(app)
     }
 
-    /// Read the `source` folder recursively and pack all it's assets into a HPAK file.
+    /// Read the `assets_source` and `processed_source` folders recursively and pack all assets into a HPAK file.
+    /// The packer will first look for assets in `processed_source` and then fallback to `assets_source`.
     ///
-    /// ```no_run
-    /// use std::fs::{File, OpenOptions};
-    /// use std::path::Path;
-    /// use bevy_histrion_packer::{WriterBuilder, CompressionAlgorithm, pack_assets_folder};
-    ///
-    /// let source = Path::new("imported_assets/Default");
-    /// let destination = Path::new("assets.hpak");
-    ///
-    /// pack_assets_folder(&source, &destination).unwrap();
-    /// ```
+    /// You can pass a `HashMap` of extensions -> compression methods, to decide which
+    /// compression method to use for specific extensions.
     pub fn pack_assets_folder(
         assets_source: &Path,
         processed_source: &Path,
         destination: &Path,
+        extensions: Option<HashMap<String, CompressionAlgorithm>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut writer = WriterBuilder::new(
             OpenOptions::new()
@@ -164,6 +158,8 @@ mod writer {
             }
         }
 
+        let extensions = extensions.as_ref();
+
         for (key, data_path) in assets_map {
             let meta_path = get_meta_path(&data_path);
 
@@ -177,7 +173,16 @@ mod writer {
             let mut meta_buffer = Vec::new();
             std::io::Read::read_to_end(&mut meta_file, &mut meta_buffer)?;
 
+            let extension = data_path
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+
             let compression_method =
+                extensions.and_then(|extensions| extensions.get(&extension).copied());
+
+            let compression_method = compression_method.unwrap_or_else(|| {
                 if let Ok(loader_type) = get_meta_loader_type_path(&meta_buffer) {
                     match loader_type.as_str() {
                         "bevy_render::render_resource::shader::ShaderLoader" => {
@@ -190,7 +195,8 @@ mod writer {
                     }
                 } else {
                     handle_extensions(data_path.clone())
-                };
+                }
+            });
 
             writer.add_entry(&key, &mut meta_file, &mut data_file, compression_method)?;
         }

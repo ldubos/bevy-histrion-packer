@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Process assets
         bhp::utils::get_processing_app()?.run();
-        bhp::pack_assets_folder(&assets_dir, &processed_dir, &destination)?;
+        bhp::pack_assets_folder(&assets_dir, &processed_dir, &destination, None)?;
     }
 
     Ok(())
