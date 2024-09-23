@@ -136,8 +136,7 @@ impl AssetReader for HPakAssetsReader {
     fn is_directory<'a>(
         &'a self,
         path: &'a Path,
-    ) -> impl ConditionalSendFuture<Output = Result<bool, bevy::asset::io::AssetReaderError>>
-    {
+    ) -> impl ConditionalSendFuture<Output = Result<bool, bevy::asset::io::AssetReaderError>> {
         Box::pin(async move {
             let as_folder = path.join("");
 

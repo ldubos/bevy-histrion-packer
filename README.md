@@ -15,11 +15,11 @@ A Bevy plugin to allows to efficiently pack all game assets, such as textures, a
 
 By default, the `pack_assets_folder` function compress metadata with Brotli and uses Deflate for data except for some specific loaders/extensions:
 
-|Compression Method|Extensions/Loaders|
-|------------------|------------------|
-|None              |.exr, .basis, .ktx2, .qoi, .qoa, .ogg, .oga, .spx, .mp3|
-|Brotli            |.ron, .json, .yml, .yaml, .toml, .txt, .ini, .cfg, .gltf, .wgsl, .glsl, .hlsl, .vert, .frag, .vs, .fs, .lua, .svg, .js, .html, .css, .xml, .mtlx, .usda|
-|Deflate           |**Default**|
+| Compression Method | Extensions/Loaders                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| None               | .exr, .basis, .ktx2, .qoi, .qoa, .ogg, .oga, .spx, .mp3                                                                                                 |
+| Brotli             | .ron, .json, .yml, .yaml, .toml, .txt, .ini, .cfg, .gltf, .wgsl, .glsl, .hlsl, .vert, .frag, .vs, .fs, .lua, .svg, .js, .html, .css, .xml, .mtlx, .usda |
+| Deflate            | **Default**                                                                                                                                             |
 
 Pack assets folder with `pack_assets_folder` function:
 
@@ -45,38 +45,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // only run this code for release builds
     #[cfg(not(debug_assertions))]
     {
-        use bevy::{app::ScheduleRunnerPlugin, prelude::*};
-        use bevy_histrion_packer::pack_assets_folder;
-        use std::path::Path;
+        use std::{env, path::PathBuf};
 
-        let imported_assets = Path::new("imported_assets");
+        use bevy_histrion_packer as bhp;
 
-        // delete the imported_assets folder
-        if imported_assets.exists() {
-            std::fs::remove_dir_all(imported_assets)?;
-        }
+        let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+        let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-        // generate the processed assets during build time
-        let mut app = App::new();
+        let assets_dir = crate_dir.join("assets");
+        let processed_dir = crate_dir.join("processed_assets/Default");
+        let destination = out_dir.join("assets.hpak");
 
-        app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_once()))
-            .add_plugins(bevy::asset::AssetPlugin {
-                mode: AssetMode::Processed,
-                ..Default::default()
-            })
-            .init_asset::<Shader>()
-            .init_asset_loader::<bevy::render::render_resource::ShaderLoader>()
-            .add_plugins(bevy::render::texture::ImagePlugin::default())
-            .add_plugins(bevy::pbr::PbrPlugin::default())
-            .add_plugins(bevy::gltf::GltfPlugin::default());
-
-        app.run();
-
-        // pack the assets folder
-        let source = Path::new("imported_assets/Default");
-        let destination = Path::new("assets.hpak");
-
-        pack_assets_folder(&source, &destination)?;
+        // Process assets
+        bhp::utils::get_processing_app()?.run();
+        bhp::pack_assets_folder(&assets_dir, &processed_dir, &destination)?;
     }
 
     Ok(())
@@ -157,19 +139,19 @@ fn main() {
 
 ## Features
 
-|Feature|Description|
-|-|-|
-|deflate|Enables the deflate compression algorithm.|
-|brotli|Enables the brotli compression algorithm.|
-|writer|Enables the writer feature, to generate a HPAK file from a folder manually with `Writer`.|
+| Feature | Description                                                                               |
+| ------- | ----------------------------------------------------------------------------------------- |
+| deflate | Enables the deflate compression algorithm.                                                |
+| brotli  | Enables the brotli compression algorithm.                                                 |
+| writer  | Enables the writer feature, to generate a HPAK file from a folder manually with `Writer`. |
 
 ## Bevy Compatibility
 
-| bevy          | bevy-histrion-packer |
-|---------------|----------------------|
-| `0.14`        | `0.4`                |
-| `0.13`        | `0.2-0.3`            |
-| `0.12`        | `0.1`                |
+| bevy   | bevy-histrion-packer |
+| ------ | -------------------- |
+| `0.14` | `0.4`                |
+| `0.13` | `0.2-0.3`            |
+| `0.12` | `0.1`                |
 
 ## License
 

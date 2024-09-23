@@ -39,6 +39,7 @@ pub use writer::*;
 #[cfg(feature = "writer")]
 mod writer {
     use std::{
+        collections::HashMap,
         fs::{File, OpenOptions},
         path::{Path, PathBuf},
         time::Duration,
@@ -102,11 +103,10 @@ mod writer {
         .add_systems(
             Update,
             |asset_processor: Res<AssetProcessor>, mut exit_tx: EventWriter<AppExit>| {
-                match bevy::tasks::block_on(asset_processor.get_state()) {
-                    bevy::asset::processor::ProcessorState::Finished => {
-                        exit_tx.send(AppExit::Success);
-                    }
-                    _ => {}
+                if bevy::tasks::block_on(asset_processor.get_state())
+                    == bevy::asset::processor::ProcessorState::Finished
+                {
+                    exit_tx.send(AppExit::Success);
                 }
             },
         );
@@ -127,7 +127,8 @@ mod writer {
     /// pack_assets_folder(&source, &destination).unwrap();
     /// ```
     pub fn pack_assets_folder(
-        source: &Path,
+        assets_source: &Path,
+        processed_source: &Path,
         destination: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut writer = WriterBuilder::new(
@@ -139,48 +140,59 @@ mod writer {
         )
         .build()?;
 
-        for entry in walkdir::WalkDir::new(source)
-            .into_iter()
-            .filter_map(Result::ok)
-        {
-            let data_path = entry.path();
-            let extension = data_path.extension().unwrap_or_default().to_os_string();
+        let mut assets_map = HashMap::new();
 
-            if data_path.is_file() && !extension.eq("meta") {
-                let meta_path = get_meta_path(data_path);
+        for source in [processed_source, assets_source] {
+            for entry in walkdir::WalkDir::new(source)
+                .into_iter()
+                .filter_map(Result::ok)
+            {
+                let file_path = entry.path().to_path_buf();
+                let extension = file_path.extension().unwrap_or_default().to_os_string();
 
-                if !meta_path.exists() {
+                if !file_path.is_file() || extension.eq("meta") {
                     continue;
                 }
 
-                let mut meta_file = File::open(meta_path)?;
-                let mut data_file = File::open(data_path)?;
+                let key = file_path.strip_prefix(processed_source)?.to_path_buf();
 
-                let mut meta_buffer = Vec::new();
-                std::io::Read::read_to_end(&mut meta_file, &mut meta_buffer)?;
+                if assets_map.contains_key(&key) {
+                    continue;
+                }
 
-                let compression_method =
-                    if let Ok(loader_type) = get_meta_loader_type_path(&meta_buffer) {
-                        match loader_type.as_str() {
-                            "bevy_render::render_resource::shader::ShaderLoader" => {
-                                CompressionAlgorithm::Deflate
-                            }
-                            "bevy_render::texture::image_loader::ImageLoader" => {
-                                handle_image_loader(&meta_buffer)
-                            }
-                            _ => handle_extensions(data_path.into()),
-                        }
-                    } else {
-                        handle_extensions(data_path.into())
-                    };
-
-                writer.add_entry(
-                    data_path.strip_prefix(source)?,
-                    &mut meta_file,
-                    &mut data_file,
-                    compression_method,
-                )?;
+                assets_map.insert(key, file_path);
             }
+        }
+
+        for (key, data_path) in assets_map {
+            let meta_path = get_meta_path(&data_path);
+
+            if !meta_path.exists() {
+                continue;
+            }
+
+            let mut meta_file = File::open(&meta_path)?;
+            let mut data_file = File::open(&data_path)?;
+
+            let mut meta_buffer = Vec::new();
+            std::io::Read::read_to_end(&mut meta_file, &mut meta_buffer)?;
+
+            let compression_method =
+                if let Ok(loader_type) = get_meta_loader_type_path(&meta_buffer) {
+                    match loader_type.as_str() {
+                        "bevy_render::render_resource::shader::ShaderLoader" => {
+                            CompressionAlgorithm::Deflate
+                        }
+                        "bevy_render::texture::image_loader::ImageLoader" => {
+                            handle_image_loader(&meta_buffer)
+                        }
+                        _ => handle_extensions(data_path.clone()),
+                    }
+                } else {
+                    handle_extensions(data_path.clone())
+                };
+
+            writer.add_entry(&key, &mut meta_file, &mut data_file, compression_method)?;
         }
 
         writer.finish()?;

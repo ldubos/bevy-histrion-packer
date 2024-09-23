@@ -17,8 +17,6 @@ pub const MAGIC_LEN: usize = 4;
 /// The magic of the HPAK file format.
 pub const MAGIC: &[u8; MAGIC_LEN] = b"HPAK";
 
-use std::path::PathBuf;
-
 use bevy::{
     asset::io::{AssetSource, AssetSourceId},
     prelude::*,
@@ -56,7 +54,7 @@ pub struct HistrionPackerPlugin {
 
 impl Plugin for HistrionPackerPlugin {
     fn build(&self, app: &mut App) {
-        let mut source = match std::env::current_exe() {
+        let source = match std::env::current_exe() {
             Ok(exe) => exe,
             Err(err) => {
                 bevy::log::error!("cannot get current executable path: {err}");
