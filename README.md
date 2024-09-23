@@ -13,14 +13,6 @@ A Bevy plugin to allows to efficiently pack all game assets, such as textures, a
 
 ### Packing assets
 
-By default, the `pack_assets_folder` function compress metadata with Brotli and uses Deflate for data except for some specific loaders/extensions:
-
-| Compression Method | Extensions/Loaders                                                                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| None               | .exr, .basis, .ktx2, .qoi, .qoa, .ogg, .oga, .spx, .mp3                                                                                                 |
-| Brotli             | .ron, .json, .yml, .yaml, .toml, .txt, .ini, .cfg, .gltf, .wgsl, .glsl, .hlsl, .vert, .frag, .vs, .fs, .lua, .svg, .js, .html, .css, .xml, .mtlx, .usda |
-| Deflate            | **Default**                                                                                                                                             |
-
 Pack assets folder with `pack_assets_folder` function:
 
 ```toml
