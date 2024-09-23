@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         use bevy_histrion_packer as bhp;
 
         let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-        let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+        let out_dir = get_output_dir()?;
 
         let assets_dir = crate_dir.join("assets");
         let processed_dir = crate_dir.join("processed_assets/Default");
@@ -55,50 +55,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+fn get_output_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    let profile = env::var("PROFILE")?;
+    let mut sub_path = out_dir.as_path();
+
+    while let Some(parent) = sub_path.parent() {
+        if parent.ends_with(&profile) {
+            return Ok(parent.to_path_buf());
+        }
+        sub_path = parent;
+    }
+
+    Err("Failed to find target directory".into())
+}
 ```
 
 It's also possible to have more control over the packing process with `Writer`:
-
-```rust
-// build.rs
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // only run this code for release builds
-    #[cfg(not(debug_assertions))]
-    {
-        use bevy_histrion_packer::{CompressionAlgorithm, WriterBuilder};
-        use std::fs::{File, OpenOptions};
-        use std::path::Path;
-
-        let destination = Path::new("assets.hpak");
-
-        let mut writer = WriterBuilder::new(
-            OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .create(true)
-                .open(&destination)?,
-        )
-        .meta_compression(CompressionAlgorithm::Brotli)
-        .build()?;
-
-        let mut data = File::open("assets/texture_1.png")?;
-        let mut meta = File::open("assets/texture_1.png.meta")?;
-
-        writer.add_entry(
-            Path::new("my_texture_path.png"),
-            &mut meta,
-            &mut data,
-            CompressionAlgorithm::Deflate,
-        )?;
-
-        // ...
-
-        writer.finish()?;
-    }
-
-    Ok(())
-}
-```
 
 ### Loading assets
 
