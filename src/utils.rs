@@ -154,7 +154,7 @@ mod writer {
                     continue;
                 }
 
-                let key = file_path.strip_prefix(processed_source)?.to_path_buf();
+                let key = file_path.strip_prefix(source)?.to_path_buf();
 
                 if assets_map.contains_key(&key) {
                     continue;
