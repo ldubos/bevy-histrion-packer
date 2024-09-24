@@ -1,6 +1,6 @@
 use std::{
     io::{Read, Seek, SeekFrom, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use super::{compression::CompressionAlgorithm, entry::Entry, header::Header};
@@ -74,7 +74,7 @@ impl<W: Write> Writer<W> {
         let data_size = compression_method.compress(data, &mut self.temp_data)? as u64;
 
         let entry = Entry::new(compression_method, self.offset, meta_size, data_size);
-        let entry_path = path.to_string_lossy().to_string();
+        let entry_path = to_slash_lossy(path).to_string_lossy().to_string();
         let entry_size = entry_path.len() as u64 + Entry::SIZE as u64;
 
         self.entries.push((entry_path, entry));
@@ -112,6 +112,43 @@ impl<W: Write> Writer<W> {
 
         Ok(())
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn to_slash_lossy(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
+#[cfg(target_os = "windows")]
+fn to_slash_lossy(path: &Path) -> PathBuf {
+    use std::{
+        os::windows::ffi::OsStrExt as _,
+        path::{Component, MAIN_SEPARATOR},
+    };
+
+    let mut buf = String::new();
+    for c in path.components() {
+        match c {
+            Component::RootDir => {}
+            Component::CurDir => buf.push('.'),
+            Component::ParentDir => buf.push_str(".."),
+            Component::Prefix(prefix) => {
+                buf.push_str(&prefix.as_os_str().to_string_lossy());
+                continue;
+            }
+            Component::Normal(s) => buf.push_str(&s.to_string_lossy()),
+        }
+        buf.push('/');
+    }
+
+    if path.as_os_str().encode_wide().last() != Some(MAIN_SEPARATOR as u16)
+        && buf != "/"
+        && buf.ends_with('/')
+    {
+        buf.pop();
+    }
+
+    PathBuf::from(buf)
 }
 
 #[cfg(test)]
