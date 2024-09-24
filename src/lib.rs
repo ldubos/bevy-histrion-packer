@@ -26,7 +26,7 @@ pub use hpak::compression::CompressionAlgorithm;
 pub use hpak::reader::HPakAssetsReader;
 
 #[cfg(feature = "writer")]
-pub use hpak::writer::{Writer, WriterBuilder};
+pub use hpak::writer::*;
 
 #[cfg(feature = "writer")]
 pub use utils::pack_assets_folder;

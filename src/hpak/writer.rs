@@ -6,30 +6,6 @@ use std::{
 use super::{compression::CompressionAlgorithm, entry::Entry, header::Header};
 use crate::{errors::Error, Encode};
 
-/// Configure a [`Writer`] used to generate HPAK archive.
-pub struct WriterBuilder<W: Write> {
-    pub(super) output: W,
-    pub(super) meta_compression: CompressionAlgorithm,
-}
-
-impl<W: Write> WriterBuilder<W> {
-    pub fn new(output: W) -> Self {
-        Self {
-            meta_compression: CompressionAlgorithm::Deflate,
-            output,
-        }
-    }
-
-    pub fn meta_compression(mut self, compression: CompressionAlgorithm) -> Self {
-        self.meta_compression = compression;
-        self
-    }
-
-    pub fn build(self) -> Result<Writer<W>, Error> {
-        Writer::new(self)
-    }
-}
-
 pub struct Writer<W: Write> {
     /// The compression method used for entries metadata.
     meta_compression: CompressionAlgorithm,
@@ -42,10 +18,10 @@ pub struct Writer<W: Write> {
 }
 
 impl<W: Write> Writer<W> {
-    pub(super) fn new(config: WriterBuilder<W>) -> Result<Writer<W>, Error> {
+    pub fn new(destination: W, meta_compression: CompressionAlgorithm) -> Result<Writer<W>, Error> {
         Ok(Writer {
-            meta_compression: config.meta_compression,
-            output: config.output,
+            meta_compression,
+            output: destination,
             temp_data: tempfile::NamedTempFile::new()?,
             offset: Header::SIZE as u64,
             entries_offset: 0,
@@ -153,38 +129,45 @@ fn to_slash_lossy(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
+
     use crate::Encode;
 
     use super::*;
 
+    fn random_string() -> String {
+        let mut rng = rand::thread_rng();
+
+        (0..2048)
+            .map(|_| rng.sample(rand::distributions::Alphanumeric) as char)
+            .collect()
+    }
+
     #[test]
     fn test_no_compression() {
         let mut output = Vec::new();
-        let mut writer = WriterBuilder::new(&mut output)
-            .meta_compression(CompressionAlgorithm::None)
-            .build()
-            .unwrap();
+        let mut writer = Writer::new(&mut output, CompressionAlgorithm::None).unwrap();
 
         let path_1 = Path::new("ä/b.data");
-        let meta_1 = b"meta_1";
-        let data_1 = b"The quick brown fox jumps over the lazy dog (data_1)";
+        let meta_1 = random_string();
+        let data_1 = random_string();
         let path_2 = Path::new("a/b/c.data");
-        let meta_2 = b"meta_2";
-        let data_2 = b"The quick brown fox jumps over the lazy dog (data_2)";
+        let meta_2 = random_string();
+        let data_2 = random_string();
 
         writer
             .add_entry(
                 path_1,
-                &mut meta_1.as_slice(),
-                &mut data_1.as_slice(),
+                &mut meta_1.as_bytes(),
+                &mut data_1.as_bytes(),
                 CompressionAlgorithm::None,
             )
             .unwrap();
         writer
             .add_entry(
                 path_2,
-                &mut meta_2.as_slice(),
-                &mut data_2.as_slice(),
+                &mut meta_2.as_bytes(),
+                &mut data_2.as_bytes(),
                 CompressionAlgorithm::None,
             )
             .unwrap();
@@ -225,10 +208,10 @@ mod tests {
             ]
             .encode(),
         );
-        ground_truth.extend_from_slice(&meta_1[..]);
-        ground_truth.extend_from_slice(&data_1[..]);
-        ground_truth.extend_from_slice(&meta_2[..]);
-        ground_truth.extend_from_slice(&data_2[..]);
+        ground_truth.extend_from_slice(meta_1.as_bytes());
+        ground_truth.extend_from_slice(data_1.as_bytes());
+        ground_truth.extend_from_slice(meta_2.as_bytes());
+        ground_truth.extend_from_slice(data_2.as_bytes());
 
         assert_eq!(&ground_truth, &output);
     }
@@ -236,48 +219,45 @@ mod tests {
     #[test]
     fn test_deflate_compression() {
         let mut output = Vec::new();
-        let mut writer = WriterBuilder::new(&mut output)
-            .meta_compression(CompressionAlgorithm::Deflate)
-            .build()
-            .unwrap();
+        let mut writer = Writer::new(&mut output, CompressionAlgorithm::Deflate).unwrap();
 
         let path_1 = Path::new("ä/b.data");
-        let meta_1 = b"meta_1";
-        let data_1 = b"The quick brown fox jumps over the lazy dog (data_1)";
+        let meta_1 = random_string();
+        let data_1 = random_string();
         let path_2 = Path::new("a/b/c.data");
-        let meta_2 = b"meta_2";
-        let data_2 = b"The quick brown fox jumps over the lazy dog (data_2)";
+        let meta_2 = random_string();
+        let data_2 = random_string();
         let mut meta_1_compressed = Vec::new();
         let mut data_1_compressed = Vec::new();
         let mut meta_2_compressed = Vec::new();
         let mut data_2_compressed = Vec::new();
 
         let meta_1_compressed_size = CompressionAlgorithm::Deflate
-            .compress(&mut meta_1.as_slice(), &mut meta_1_compressed)
+            .compress(&mut meta_1.as_bytes(), &mut meta_1_compressed)
             .unwrap() as u64;
         let data_1_compressed_size = CompressionAlgorithm::Deflate
-            .compress(&mut data_1.as_slice(), &mut data_1_compressed)
+            .compress(&mut data_1.as_bytes(), &mut data_1_compressed)
             .unwrap() as u64;
         let meta_2_compressed_size = CompressionAlgorithm::Deflate
-            .compress(&mut meta_2.as_slice(), &mut meta_2_compressed)
+            .compress(&mut meta_2.as_bytes(), &mut meta_2_compressed)
             .unwrap() as u64;
         let data_2_compressed_size = CompressionAlgorithm::Deflate
-            .compress(&mut data_2.as_slice(), &mut data_2_compressed)
+            .compress(&mut data_2.as_bytes(), &mut data_2_compressed)
             .unwrap() as u64;
 
         writer
             .add_entry(
                 path_1,
-                &mut meta_1.as_slice(),
-                &mut data_1.as_slice(),
+                &mut meta_1.as_bytes(),
+                &mut data_1.as_bytes(),
                 CompressionAlgorithm::Deflate,
             )
             .unwrap();
         writer
             .add_entry(
                 path_2,
-                &mut meta_2.as_slice(),
-                &mut data_2.as_slice(),
+                &mut meta_2.as_bytes(),
+                &mut data_2.as_bytes(),
                 CompressionAlgorithm::Deflate,
             )
             .unwrap();

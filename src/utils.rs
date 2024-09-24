@@ -47,7 +47,7 @@ mod writer {
 
     use bevy::asset::processor::AssetProcessor;
 
-    use crate::{utils::get_meta_loader_settings, CompressionAlgorithm, WriterBuilder};
+    use crate::{utils::get_meta_loader_settings, CompressionAlgorithm, Writer};
 
     use super::get_meta_loader_type_path;
 
@@ -70,18 +70,6 @@ mod writer {
     /// - `bevy::render::texture::ImagePlugin`
     /// - `bevy::pbr::PbrPlugin`
     /// - `bevy::gltf::GltfPlugin`
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use bevy_histrion_packer::utils::get_processing_app;
-    ///
-    /// let app = get_processing_app(DefaultPlugins).unwrap();
-    ///
-    /// // app.add_plugins(my_extra_assets_plugins);
-    ///
-    /// app.run();
-    /// ```
     pub fn get_processing_app() -> Result<bevy::app::App, Box<dyn std::error::Error>> {
         use bevy::app::ScheduleRunnerPlugin;
         use bevy::prelude::*;
@@ -126,15 +114,14 @@ mod writer {
         meta_compression: CompressionAlgorithm,
         extensions: Option<HashMap<String, CompressionAlgorithm>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut writer = WriterBuilder::new(
+        let mut writer = Writer::new(
             OpenOptions::new()
                 .write(true)
                 .truncate(true)
                 .create(true)
                 .open(destination)?,
-        )
-        .meta_compression(meta_compression)
-        .build()?;
+            meta_compression,
+        )?;
 
         let mut assets_map = HashMap::new();
 
