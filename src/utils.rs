@@ -41,6 +41,7 @@ mod writer {
     use std::{
         collections::HashMap,
         fs::{File, OpenOptions},
+        io::{Seek, SeekFrom},
         path::{Path, PathBuf},
         time::Duration,
     };
@@ -167,6 +168,8 @@ mod writer {
 
             let mut meta_buffer = Vec::new();
             std::io::Read::read_to_end(&mut meta_file, &mut meta_buffer)?;
+
+            meta_file.seek(SeekFrom::Start(0))?;
 
             let extension = data_path
                 .extension()
