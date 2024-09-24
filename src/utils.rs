@@ -159,6 +159,12 @@ mod writer {
         }
 
         let extensions = extensions.as_ref();
+        let mut assets_map = assets_map
+            .into_iter()
+            .map(|(key, data)| (key, data))
+            .collect::<Vec<_>>();
+
+        assets_map.sort_by(|(a, _), (b, _)| a.cmp(b));
 
         for (key, data_path) in assets_map {
             let meta_path = get_meta_path(&data_path);
