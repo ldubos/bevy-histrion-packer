@@ -123,6 +123,7 @@ mod writer {
         assets_source: &Path,
         processed_source: &Path,
         destination: &Path,
+        meta_compression: CompressionAlgorithm,
         extensions: Option<HashMap<String, CompressionAlgorithm>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut writer = WriterBuilder::new(
@@ -132,6 +133,7 @@ mod writer {
                 .create(true)
                 .open(destination)?,
         )
+        .meta_compression(meta_compression)
         .build()?;
 
         let mut assets_map = HashMap::new();

@@ -50,7 +50,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Process assets
         bhp::utils::get_processing_app()?.run();
-        bhp::pack_assets_folder(&assets_dir, &processed_dir, &destination, None)?;
+        bhp::pack_assets_folder(
+            // Assets source
+            &assets_dir,
+            // Processed assets source
+            &processed_dir,
+            // Destination file
+            &destination,
+            // Metadata compression
+            bhp::CompressionAlgorithm::Deflate,
+            None,
+        )?;
     }
 
     Ok(())
