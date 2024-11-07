@@ -10,7 +10,7 @@ use text_asset::{TextAsset, TextAssetLoader};
 fn main() {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
-    // process assets
+    // process assets, we can add more assets pre-processing steps here
     App::new()
         .add_plugins(
             HeadlessPlugins
@@ -43,12 +43,22 @@ fn main() {
 
     // pack assets
     bhp::writer::pack_assets_folder(
+        // assets directory
         crate_dir.join("assets"),
+        // processed assets directory
         crate_dir.join("imported_assets/Default"),
+        // output file
         crate_dir.join("assets.hpak"),
-        bhp::CompressionMethod::None,
+        // use deflate compression method for metadata
         bhp::CompressionMethod::Deflate,
-        None,
+        // use deflate compression method as default for data
+        bhp::CompressionMethod::Deflate,
+        // use default extensions compression method
+        bhp::writer::default_extensions_compression_method(),
+        // don't ignore missing meta
+        false,
+        // don't add padding
+        false,
     )
     .unwrap();
 }

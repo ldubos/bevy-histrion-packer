@@ -147,8 +147,61 @@ pub mod writer {
 
     use std::path::Path;
 
+    pub fn default_extensions_compression_method() -> Option<HashMap<String, CompressionMethod>> {
+        HashMap::from([
+            // audio
+            ("ogg".to_string(), CompressionMethod::Deflate),
+            ("oga".to_string(), CompressionMethod::Deflate),
+            ("spx".to_string(), CompressionMethod::Deflate),
+            ("mp3".to_string(), CompressionMethod::Deflate),
+            ("qoa".to_string(), CompressionMethod::Deflate),
+            // image
+            ("exr".to_string(), CompressionMethod::None),
+            ("png".to_string(), CompressionMethod::None),
+            ("jpg".to_string(), CompressionMethod::None),
+            ("jpeg".to_string(), CompressionMethod::None),
+            ("webp".to_string(), CompressionMethod::Deflate),
+            ("ktx".to_string(), CompressionMethod::None),
+            ("ktx2".to_string(), CompressionMethod::None),
+            ("basis".to_string(), CompressionMethod::None),
+            ("qoi".to_string(), CompressionMethod::Deflate),
+            ("dds".to_string(), CompressionMethod::None),
+            ("tga".to_string(), CompressionMethod::Deflate),
+            ("bmp".to_string(), CompressionMethod::None),
+            // 3d models
+            ("gltf".to_string(), CompressionMethod::Deflate),
+            ("glb".to_string(), CompressionMethod::Deflate),
+            ("obj".to_string(), CompressionMethod::Deflate),
+            ("fbx".to_string(), CompressionMethod::Deflate),
+            ("meshlet_mesh".to_string(), CompressionMethod::Deflate),
+            // shaders
+            ("glsl".to_string(), CompressionMethod::Deflate),
+            ("hlsl".to_string(), CompressionMethod::Deflate),
+            ("vert".to_string(), CompressionMethod::Deflate),
+            ("frag".to_string(), CompressionMethod::Deflate),
+            ("vs".to_string(), CompressionMethod::Deflate),
+            ("fs".to_string(), CompressionMethod::Deflate),
+            ("wgsl".to_string(), CompressionMethod::Deflate),
+            ("spv".to_string(), CompressionMethod::Deflate),
+            ("metal".to_string(), CompressionMethod::Deflate),
+            // text
+            ("txt".to_string(), CompressionMethod::Deflate),
+            ("toml".to_string(), CompressionMethod::Deflate),
+            ("ron".to_string(), CompressionMethod::Deflate),
+            ("json".to_string(), CompressionMethod::Deflate),
+            ("yaml".to_string(), CompressionMethod::Deflate),
+            ("yml".to_string(), CompressionMethod::Deflate),
+            ("xml".to_string(), CompressionMethod::Deflate),
+            ("md".to_string(), CompressionMethod::Deflate),
+            // video
+            ("mp4".to_string(), CompressionMethod::Deflate),
+            ("webm".to_string(), CompressionMethod::Deflate),
+        ])
+        .into()
+    }
+
     /// Pack all assets presents either in the `assets_dir` or in the `processed_dir` directory,
-    /// into a single `output` HPAK file.
+    /// into a single `output_file` HPAK file.
     ///
     /// It will first look for all assets in the `processed_dir` directory, and then in the
     /// `assets_dir` directory.
@@ -156,15 +209,20 @@ pub mod writer {
     /// The `meta_compression_method` is used to compress the metadata of the assets.
     /// The `default_compression_method` is used to compress the data of the assets if no `method`
     /// is specified in the `extensions_compression_method` map for the asset's extension.
+    ///
+    /// If `with_padding` is true, padding will be added to align entries to 4096 bytes.
+    #[allow(clippy::too_many_arguments)]
     pub fn pack_assets_folder(
         assets_dir: impl AsRef<Path>,
         processed_dir: impl AsRef<Path>,
-        output: impl AsRef<Path>,
+        output_file: impl AsRef<Path>,
         meta_compression_method: CompressionMethod,
         default_compression_method: CompressionMethod,
         extensions_compression_method: Option<HashMap<String, CompressionMethod>>,
+        ignore_missing_meta: bool,
+        with_padding: bool,
     ) -> Result<()> {
-        let mut writer = HpakWriter::new(output, meta_compression_method)?;
+        let mut writer = HpakWriter::new(output_file, meta_compression_method, with_padding)?;
         let mut assets_map: BTreeMap<PathBuf, PathBuf> = BTreeMap::new();
 
         for source in [processed_dir.as_ref(), assets_dir.as_ref()] {
@@ -208,17 +266,19 @@ pub mod writer {
         }
 
         let assets_map = assets_map.into_iter().collect::<Vec<_>>();
-
         let extensions_compression_method = extensions_compression_method.as_ref();
 
         for (entry, path) in assets_map {
             let meta_path = get_meta_path(&path);
 
-            if !meta_path.exists() {
+            let mut meta_file: Box<dyn std::io::Read> = if meta_path.exists() {
+                Box::new(fs::File::open(&meta_path)?)
+            } else if ignore_missing_meta {
+                Box::new(std::io::Cursor::new(vec![]))
+            } else {
                 continue;
-            }
+            };
 
-            let mut meta_file = fs::File::open(&meta_path)?;
             let mut data_file = fs::File::open(&path)?;
 
             let extension = path
@@ -241,10 +301,7 @@ pub mod writer {
 
     fn get_meta_path(path: impl AsRef<Path>) -> PathBuf {
         let mut meta_path = path.as_ref().to_path_buf();
-        let mut extension = meta_path
-            .extension()
-            .expect("asset paths must have extensions")
-            .to_os_string();
+        let mut extension = meta_path.extension().unwrap_or_default().to_os_string();
         extension.push(".meta");
         meta_path.set_extension(extension);
         meta_path

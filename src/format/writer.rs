@@ -12,11 +12,19 @@ pub struct HpakWriter {
     output: File,
     meta_compression_method: CompressionMethod,
     entries: BTreeMap<PathBuf, HpakFileEntry>,
+    with_padding: bool,
     finalized: bool,
 }
 
 impl HpakWriter {
-    pub fn new(path: impl AsRef<Path>, meta_compression_method: CompressionMethod) -> Result<Self> {
+    /// Create a new HPAK writer.
+    /// The `meta_compression_method` is used to compress the metadata of the assets.
+    /// If `with_padding` is true, padding will be added to align entries to 4096 bytes.
+    pub fn new(
+        path: impl AsRef<Path>,
+        meta_compression_method: CompressionMethod,
+        with_padding: bool,
+    ) -> Result<Self> {
         let mut output = OpenOptions::new()
             .write(true)
             .create(true)
@@ -34,6 +42,7 @@ impl HpakWriter {
             output,
             meta_compression_method,
             entries: BTreeMap::new(),
+            with_padding,
             finalized: false,
         })
     }
@@ -155,6 +164,10 @@ impl HpakWriter {
     }
 
     fn pad_to_alignment(&mut self) -> Result<()> {
+        if !self.with_padding {
+            return Ok(());
+        }
+
         const ALIGNMENT: u64 = 4096;
 
         let offset = self.offset()?;
