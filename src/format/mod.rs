@@ -185,7 +185,7 @@ pub enum CompressionMethod {
 impl CompressionMethod {
     pub fn compress<R: Read, W: Write>(&self, mut reader: R, mut writer: W) -> Result<u64> {
         match self {
-            CompressionMethod::None => Ok(std::io::copy(&mut reader, &mut writer)? as u64),
+            CompressionMethod::None => Ok(std::io::copy(&mut reader, &mut writer)?),
             CompressionMethod::Deflate => {
                 use zopfli::{Format::Deflate, Options};
 
