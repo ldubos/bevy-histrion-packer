@@ -1,4 +1,4 @@
-<h1 align="center"> Bevy Histrion Packer</h1>
+<h1 align="center">bevy-histrion-packer</h1>
 
 <div align="center">
 
@@ -14,6 +14,50 @@ Pack all your game assets into a single common PAK like file format.
 > [!WARNING]
 > This crate is in early development.<br/>
 > Use it with caution as the format and API is not yet stabilized.
+
+## File Structure
+
+```
+         +--------------------------------+ 0x0000
+         |             Header             |
+         +--------------------------------+
+         |          File Content          |
+         +--------------------------------+ <entries_offset>
+         |         Entries Tables         |
+         +--------------------------------+
+
+Header
+====================================================
+Offset  Size    Description
+0x0000  4       Magic number (HPAK signature)
+0x0004  4       Version number (u32)
+0x0008  1       Metadata compression method
+0x0009  8       Entries offset (u64)
+
+Directory Entry
+====================================================
+Offset  Size    Description
+0x0000  8       Hash of the directory path
+0x0008  8       Number of paths in the directory
+0x0010  var     Array of paths in the directory
+
+File Entry
+====================================================
+Offset  Size    Description
+0x0000  8       Path hash (u64)
+0x0008  1       Compression method
+0x0009  8       Metadata offset (u64)
+0x0011  8       Metadata size (u64)
+0x0019  8       Data size (u64)
+
+Entries Tables
+====================================================
+Offset  Size    Description
+0x0000  8       Number of directory entries (u64)
+0x0008  var     Array of directory entries
+0x????  8       Number of file entries (u64)
+0x????  var     Array of file entries
+```
 
 ## Features
 
