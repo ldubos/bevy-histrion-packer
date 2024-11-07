@@ -38,23 +38,22 @@ fn setup(mut state: ResMut<State>, asset_server: Res<AssetServer>) {
 }
 
 fn print_on_load(mut state: ResMut<State>, text_assets: Res<Assets<TextAsset>>) {
-    let a = text_assets.get(&state.a);
-    let b = text_assets.get(&state.b);
-
     if state.printed {
         return;
     }
 
-    if a.is_none() {
-        return;
-    }
+    let a = match text_assets.get(&state.a) {
+        Some(a) => a,
+        None => return,
+    };
 
-    if b.is_none() {
-        return;
-    }
+    let b = match text_assets.get(&state.b) {
+        Some(b) => b,
+        None => return,
+    };
 
-    info!("TextAsset A: {}", a.unwrap());
-    info!("TextAsset B: {}", b.unwrap());
+    info!("TextAsset A: {}", a);
+    info!("TextAsset B: {}", b);
 
     state.printed = true;
 }

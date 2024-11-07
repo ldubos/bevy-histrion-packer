@@ -43,8 +43,6 @@ fn main() {
 
     // pack assets
     bhp::writer::pack_assets_folder(
-        // assets directory
-        crate_dir.join("assets"),
         // processed assets directory
         crate_dir.join("imported_assets/Default"),
         // output file

@@ -142,7 +142,6 @@ pub mod writer {
     use super::*;
     use bevy::utils::HashMap;
     pub use format::HpakWriter;
-    use std::collections::BTreeMap;
     use std::fs;
 
     use std::path::Path;
@@ -200,21 +199,15 @@ pub mod writer {
         .into()
     }
 
-    /// Pack all assets presents either in the `assets_dir` or in the `processed_dir` directory,
-    /// into a single `output_file` HPAK file.
-    ///
-    /// It will first look for all assets in the `processed_dir` directory, and then in the
-    /// `assets_dir` directory.
+    /// Pack all assets presents in the `assets_dir` into a single `output_file` HPAK file.
     ///
     /// The `meta_compression_method` is used to compress the metadata of the assets.
     /// The `default_compression_method` is used to compress the data of the assets if no `method`
     /// is specified in the `extensions_compression_method` map for the asset's extension.
     ///
     /// If `with_padding` is true, padding will be added to align entries to 4096 bytes.
-    #[allow(clippy::too_many_arguments)]
     pub fn pack_assets_folder(
         assets_dir: impl AsRef<Path>,
-        processed_dir: impl AsRef<Path>,
         output_file: impl AsRef<Path>,
         meta_compression_method: CompressionMethod,
         default_compression_method: CompressionMethod,
@@ -222,53 +215,41 @@ pub mod writer {
         ignore_missing_meta: bool,
         with_padding: bool,
     ) -> Result<()> {
+        let assets_dir = assets_dir.as_ref();
+        let extensions_compression_method = extensions_compression_method.as_ref();
         let mut writer = HpakWriter::new(output_file, meta_compression_method, with_padding)?;
-        let mut assets_map: BTreeMap<PathBuf, PathBuf> = BTreeMap::new();
 
-        for source in [processed_dir.as_ref(), assets_dir.as_ref()] {
-            if !source.exists() {
-                return Err(Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("source directory does not exist: {source:?}"),
-                )));
-            }
-
-            if !source.is_dir() {
-                return Err(Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("source is not a directory: {source:?}"),
-                )));
-            }
-
-            for entry in walkdir(source) {
-                let extension = entry.extension().unwrap_or_default().to_os_string();
-
-                if extension.eq("meta") {
-                    continue;
-                }
-
-                let key = match entry.strip_prefix(source) {
-                    Ok(path) => path.to_path_buf(),
-                    Err(e) => {
-                        return Err(Error::Io(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!("invalid path: {e}"),
-                        )))
-                    }
-                };
-
-                if assets_map.contains_key(&key) {
-                    continue;
-                }
-
-                assets_map.insert(key.clone(), entry.clone());
-            }
+        if !assets_dir.exists() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("assets_dir directory does not exist: {assets_dir:?}"),
+            )));
         }
 
-        let assets_map = assets_map.into_iter().collect::<Vec<_>>();
-        let extensions_compression_method = extensions_compression_method.as_ref();
+        if !assets_dir.is_dir() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("assets_dir is not a directory: {assets_dir:?}"),
+            )));
+        }
 
-        for (entry, path) in assets_map {
+        for path in walkdir(assets_dir) {
+            let extension = path.extension().unwrap_or_default().to_os_string();
+
+            if extension.eq("meta") {
+                continue;
+            }
+
+            let entry = match path.strip_prefix(assets_dir) {
+                Ok(path) => path.to_path_buf(),
+                Err(e) => {
+                    return Err(Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("invalid path: {e}"),
+                    )))
+                }
+            };
+
             let meta_path = get_meta_path(&path);
 
             let mut meta_file: Box<dyn std::io::Read> = if meta_path.exists() {

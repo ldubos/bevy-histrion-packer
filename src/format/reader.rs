@@ -66,8 +66,6 @@ impl HpakReader {
         file.seek(SeekFrom::Start(header.entries_offset))?;
         let entries = HpakEntries::decode(&mut file)?;
 
-        println!("{:#?}", entries);
-
         let mmap = unsafe { Mmap::map(&file)? };
 
         Ok(Self {
@@ -102,8 +100,6 @@ impl HpakReader {
 
     fn get_entry(&self, path: &Path) -> Result<&HpakFileEntry> {
         let hash = hash_path(path);
-
-        println!("hash: {}", hash);
 
         self.entries
             .files
