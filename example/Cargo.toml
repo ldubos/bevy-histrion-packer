@@ -1,0 +1,30 @@
+[workspace]
+members = ["text_asset", "."]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+bevy = "0.15.0-rc.3"
+
+[package]
+name = "example"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bevy.workspace = true
+bevy-histrion-packer = { path = "../" }
+text_asset = { path = "text_asset" }
+
+[build-dependencies]
+bevy = { workspace = true, features = [
+  "asset_processor",
+  "file_watcher",
+  "embedded_watcher",
+] }
+text_asset = { path = "text_asset" }
+bevy-histrion-packer = { path = "../" }

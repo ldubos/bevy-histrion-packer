@@ -1,0 +1,8 @@
+[package]
+name = "text_asset"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bevy = { workspace = true }
