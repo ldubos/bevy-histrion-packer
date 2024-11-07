@@ -16,10 +16,7 @@ pub struct HpakWriter {
 }
 
 impl HpakWriter {
-    pub fn new<P: AsRef<Path>>(
-        path: P,
-        meta_compression_method: CompressionMethod,
-    ) -> Result<Self> {
+    pub fn new(path: impl AsRef<Path>, meta_compression_method: CompressionMethod) -> Result<Self> {
         let mut output = OpenOptions::new()
             .write(true)
             .create(true)
@@ -42,11 +39,11 @@ impl HpakWriter {
     }
 
     /// Add an entry to the archive.
-    pub fn add_entry<P: AsRef<Path>, M: Read, D: Read>(
+    pub fn add_entry(
         &mut self,
-        path: P,
-        meta: M,
-        data: D,
+        path: impl AsRef<Path>,
+        meta: impl Read,
+        data: impl Read,
         compression_method: CompressionMethod,
     ) -> Result<()> {
         if self.finalized {
@@ -62,6 +59,7 @@ impl HpakWriter {
         self.pad_to_alignment()?;
 
         let meta_offset = self.offset()?;
+
         let meta_size = self
             .meta_compression_method
             .compress(meta, &mut self.output)?;
@@ -168,6 +166,8 @@ impl HpakWriter {
             let padding_bytes = vec![0u8; padding as usize];
             self.output.write_all(&padding_bytes)?;
         }
+
+        self.output.flush()?;
 
         Ok(())
     }

@@ -14,9 +14,7 @@ use bevy::{
 };
 use thiserror::Error;
 
-pub use format::HpakReader;
-#[cfg(feature = "writer")]
-pub use format::HpakWriter;
+pub use format::{CompressionMethod, HpakReader};
 
 /// The magic of the HPAK file format.
 pub const MAGIC: [u8; 4] = *b"HPAK";
@@ -136,5 +134,139 @@ impl Plugin for HistrionPackerPlugin {
                 );
             }
         }
+    }
+}
+
+#[cfg(feature = "writer")]
+pub mod writer {
+    use super::*;
+    use bevy::utils::HashMap;
+    pub use format::HpakWriter;
+    use std::collections::BTreeMap;
+    use std::fs;
+
+    use std::path::Path;
+
+    /// Pack all assets presents either in the `assets_dir` or in the `processed_dir` directory,
+    /// into a single `output` HPAK file.
+    ///
+    /// It will first look for all assets in the `processed_dir` directory, and then in the
+    /// `assets_dir` directory.
+    ///
+    /// The `meta_compression_method` is used to compress the metadata of the assets.
+    /// The `default_compression_method` is used to compress the data of the assets if no `method`
+    /// is specified in the `extensions_compression_method` map for the asset's extension.
+    pub fn pack_assets_folder(
+        assets_dir: impl AsRef<Path>,
+        processed_dir: impl AsRef<Path>,
+        output: impl AsRef<Path>,
+        meta_compression_method: CompressionMethod,
+        default_compression_method: CompressionMethod,
+        extensions_compression_method: Option<HashMap<String, CompressionMethod>>,
+    ) -> Result<()> {
+        let mut writer = HpakWriter::new(output, meta_compression_method)?;
+        let mut assets_map: BTreeMap<PathBuf, PathBuf> = BTreeMap::new();
+
+        for source in [processed_dir.as_ref(), assets_dir.as_ref()] {
+            if !source.exists() {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("source directory does not exist: {source:?}"),
+                )));
+            }
+
+            if !source.is_dir() {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("source is not a directory: {source:?}"),
+                )));
+            }
+
+            for entry in walkdir(source) {
+                let extension = entry.extension().unwrap_or_default().to_os_string();
+
+                if extension.eq("meta") {
+                    continue;
+                }
+
+                let key = match entry.strip_prefix(source) {
+                    Ok(path) => path.to_path_buf(),
+                    Err(e) => {
+                        return Err(Error::Io(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid path: {e}"),
+                        )))
+                    }
+                };
+
+                if assets_map.contains_key(&key) {
+                    continue;
+                }
+
+                assets_map.insert(key.clone(), entry.clone());
+            }
+        }
+
+        let assets_map = assets_map.into_iter().collect::<Vec<_>>();
+
+        let extensions_compression_method = extensions_compression_method.as_ref();
+
+        for (entry, path) in assets_map {
+            let meta_path = get_meta_path(&path);
+
+            if !meta_path.exists() {
+                continue;
+            }
+
+            let mut meta_file = fs::File::open(&meta_path)?;
+            let mut data_file = fs::File::open(&path)?;
+
+            let extension = path
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+
+            let compression_method = extensions_compression_method
+                .and_then(|extensions| extensions.get(&extension).copied())
+                .unwrap_or(default_compression_method);
+
+            writer.add_entry(&entry, &mut meta_file, &mut data_file, compression_method)?;
+        }
+
+        writer.finalize()?;
+
+        Ok(())
+    }
+
+    fn get_meta_path(path: impl AsRef<Path>) -> PathBuf {
+        let mut meta_path = path.as_ref().to_path_buf();
+        let mut extension = meta_path
+            .extension()
+            .expect("asset paths must have extensions")
+            .to_os_string();
+        extension.push(".meta");
+        meta_path.set_extension(extension);
+        meta_path
+    }
+
+    fn walkdir<'a>(root: impl AsRef<Path>) -> Box<dyn Iterator<Item = PathBuf> + 'a> {
+        Box::new(
+            fs::read_dir(root.as_ref())
+                .unwrap()
+                .filter_map(|entry| match entry {
+                    Ok(entry) => {
+                        let path = entry.path();
+
+                        if path.is_dir() {
+                            Some(walkdir(path).collect::<Vec<_>>())
+                        } else {
+                            Some(vec![path])
+                        }
+                    }
+                    Err(_) => None,
+                })
+                .flatten(),
+        )
     }
 }

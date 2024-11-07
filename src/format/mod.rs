@@ -3,12 +3,12 @@ mod reader;
 mod writer;
 
 use std::{
-    hash::{Hash, Hasher},
+    hash::{DefaultHasher, Hash, Hasher},
     io::{Read, Write},
     path::{Path, PathBuf},
 };
 
-use bevy::utils::{hashbrown::HashTable, AHasher};
+use bevy::utils::hashbrown::HashTable;
 
 use crate::{encoding::*, Result};
 
@@ -55,7 +55,7 @@ impl Decode for HpakHeader {
 }
 
 /// An entry in the HPAK archive.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HpakFileEntry {
     /// Hash of the entry's path.
     pub(crate) hash: u64,
@@ -97,7 +97,7 @@ impl Decode for HpakFileEntry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HpakDirectoryEntry {
     /// Hash of the entry's path.
     pub(crate) hash: u64,
@@ -128,10 +128,10 @@ impl Decode for HpakDirectoryEntry {
 
 #[derive(Debug, Clone)]
 pub struct HpakEntries {
-    /// File entries in the archive.
-    pub(crate) files: HashTable<HpakFileEntry>,
     /// Directory entries in the archive.
     pub(crate) directories: HashTable<HpakDirectoryEntry>,
+    /// File entries in the archive.
+    pub(crate) files: HashTable<HpakFileEntry>,
 }
 
 impl Encode for HpakEntries {
@@ -266,7 +266,7 @@ impl Decode for CompressionMethod {
 }
 
 pub(crate) fn hash_path<P: AsRef<Path>>(path: P) -> u64 {
-    let mut hasher = AHasher::default();
+    let mut hasher = DefaultHasher::default();
     path.as_ref().hash(&mut hasher);
     hasher.finish()
 }
@@ -338,6 +338,125 @@ mod tests {
         assert_eq!(method, encode_decode(method));
     }
 
+    #[rstest]
+    #[case(
+        vec![
+            HpakFileEntry {
+                hash: 0,
+                compression_method: CompressionMethod::None,
+                meta_offset: 0,
+                meta_size: 0,
+                data_size: 0,
+            },
+            HpakFileEntry {
+                hash: 1,
+                compression_method: CompressionMethod::None,
+                meta_offset: 42,
+                meta_size: 100,
+                data_size: 100,
+            },
+            HpakFileEntry {
+                hash: 2,
+                compression_method: CompressionMethod::None,
+                meta_offset: 100,
+                meta_size: 200,
+                data_size: 400,
+            },
+        ],
+        vec![
+            HpakDirectoryEntry {
+                hash: 0,
+                entries: Vec::new(),
+            },
+            HpakDirectoryEntry {
+                hash: 1,
+                entries: vec![PathBuf::from("a"), PathBuf::from("b")],
+            },
+            HpakDirectoryEntry {
+                hash: 2,
+                entries: vec![PathBuf::from("c"), PathBuf::from("d")],
+            },
+        ],
+    )]
+    #[cfg_attr(feature = "deflate", case(
+        vec![
+            HpakFileEntry {
+                hash: 128,
+                compression_method: CompressionMethod::Deflate,
+                meta_offset: 0,
+                meta_size: 0,
+                data_size: 0,
+            },
+            HpakFileEntry {
+                hash: 256,
+                compression_method: CompressionMethod::None,
+                meta_offset: 42,
+                meta_size: 100,
+                data_size: 100,
+            },
+            HpakFileEntry {
+                hash: 512,
+                compression_method: CompressionMethod::Deflate,
+                meta_offset: 100,
+                meta_size: 200,
+                data_size: u64::MAX,
+            },
+        ],
+        vec![
+            HpakDirectoryEntry {
+                hash: 0,
+                entries: Vec::new(),
+            },
+            HpakDirectoryEntry {
+                hash: 1,
+                entries: vec![PathBuf::from("a"), PathBuf::from("b")],
+            },
+            HpakDirectoryEntry {
+                hash: 2,
+                entries: vec![PathBuf::from("c"), PathBuf::from("d")],
+            },
+        ],
+    ))]
+    fn it_encode_decode_entries(
+        #[case] files: Vec<HpakFileEntry>,
+        #[case] directories: Vec<HpakDirectoryEntry>,
+    ) {
+        let mut entries = HpakEntries {
+            directories: HashTable::new(),
+            files: HashTable::new(),
+        };
+
+        for entry in files {
+            entries
+                .files
+                .insert_unique(entry.hash, entry, HpakFileEntry::hash);
+        }
+
+        for entry in directories {
+            entries
+                .directories
+                .insert_unique(entry.hash, entry, HpakDirectoryEntry::hash);
+        }
+
+        let decoded = encode_decode(entries.clone());
+
+        for entry in entries.files.iter() {
+            let decoded = decoded
+                .files
+                .find(entry.hash, |e| e.hash == entry.hash)
+                .unwrap();
+            assert_eq!(entry, decoded);
+        }
+
+        for entry in entries.directories.iter() {
+            let decoded = decoded
+                .directories
+                .find(entry.hash, |e| e.hash == entry.hash)
+                .unwrap();
+            assert_eq!(entry, decoded);
+        }
+    }
+
     #[test]
     #[should_panic]
     fn if_fails_to_decode_invalid_compression_method() {
@@ -346,5 +465,28 @@ mod tests {
         u8::MAX.encode(&mut bytes).unwrap();
 
         let _ = CompressionMethod::decode(&mut bytes.as_slice()).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "deflate")]
+    fn it_compress_decompress() {
+        use flate2::read::DeflateDecoder;
+
+        let bytes = Vec::from(b"Hello World!");
+        let mut encoded = Vec::new();
+
+        let size = CompressionMethod::Deflate
+            .compress(std::io::Cursor::new(&bytes), &mut encoded)
+            .unwrap();
+
+        assert_eq!(encoded.len() as u64, size);
+
+        let mut decoded = Vec::new();
+
+        DeflateDecoder::new(std::io::Cursor::new(encoded))
+            .read_to_end(&mut decoded)
+            .unwrap();
+
+        assert_eq!(bytes, decoded);
     }
 }

@@ -34,7 +34,7 @@ const _: () = {
 };
 
 #[cfg(windows)]
-fn open_archive<P: AsRef<Path>>(path: P) -> Result<File> {
+fn open_archive(path: impl AsRef<Path>) -> Result<File> {
     use std::os::windows::fs::OpenOptionsExt;
 
     Ok(OpenOptions::new()
@@ -45,7 +45,7 @@ fn open_archive<P: AsRef<Path>>(path: P) -> Result<File> {
 }
 
 #[cfg(unix)]
-fn open_archive<P: AsRef<Path>>(path: P) -> Result<File> {
+fn open_archive(path: impl AsRef<Path>) -> Result<File> {
     use std::os::unix::fs::OpenOptionsExt;
 
     Ok(OpenOptions::new()
@@ -55,7 +55,7 @@ fn open_archive<P: AsRef<Path>>(path: P) -> Result<File> {
 }
 
 impl HpakReader {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
         let mut file = open_archive(path)?;
 
         // read header
@@ -65,6 +65,8 @@ impl HpakReader {
         // jump to the entries table
         file.seek(SeekFrom::Start(header.entries_offset))?;
         let entries = HpakEntries::decode(&mut file)?;
+
+        println!("{:#?}", entries);
 
         let mmap = unsafe { Mmap::map(&file)? };
 
@@ -100,6 +102,8 @@ impl HpakReader {
 
     fn get_entry(&self, path: &Path) -> Result<&HpakFileEntry> {
         let hash = hash_path(path);
+
+        println!("hash: {}", hash);
 
         self.entries
             .files
