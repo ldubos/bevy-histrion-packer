@@ -3,8 +3,9 @@
 <div align="center">
 
 ![MIT or Apache 2.0](https://img.shields.io/badge/License-MIT%20or%20Apache%202.0-blue.svg)
-[![Docs](https://docs.rs/bevy-histrion-packer/badge.svg)](https://docs.rs/bevy-histrion-packer)
 [![Crate](https://img.shields.io/crates/v/bevy-histrion-packer.svg)](https://crates.io/crates/bevy-histrion-packer)
+[![Docs](https://docs.rs/bevy-histrion-packer/badge.svg)](https://docs.rs/bevy-histrion-packer)
+[![CI](https://github.com/ldubos/bevy-histrion-packer/workflows/CI/badge.svg)](https://github.com/ldubos/bevy-histrion-packer/actions)
 
 Pack all your game assets into a single common PAK like file format.
 
