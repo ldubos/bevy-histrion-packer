@@ -47,6 +47,8 @@ fn open_archive<P: AsRef<Path>>(path: P) -> Result<File> {
 
 #[cfg(unix)]
 fn open_archive<P: AsRef<Path>>(path: P) -> Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
     Ok(OpenOptions::new()
         .read(true)
         .custom_flags(0o1000000 /*O_NOATIME*/)
