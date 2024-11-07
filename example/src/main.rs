@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 
-
 use bevy_histrion_packer::HistrionPackerPlugin;
 use text_asset::{TextAsset, TextAssetLoader};
 
