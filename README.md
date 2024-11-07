@@ -159,19 +159,19 @@ fn main() {
 
 ## Features
 
-|Feature|Description|
-|-|-|
-|deflate|Enables the deflate compression algorithm.|
-|brotli|Enables the brotli compression algorithm.|
-|writer|Enables the writer feature, to generate a HPAK file from a folder manually with `Writer`.|
+| Feature | Description                                                    |
+| ------- | -------------------------------------------------------------- |
+| deflate | Enables the deflate compression algorithm.                     |
+| writer  | Enables the ability to generate a HPAK file with `HpakWriter`. |
 
 ## Bevy Compatibility
 
-| bevy          | bevy-histrion-packer |
-|---------------|----------------------|
-| `0.14`        | `0.4`                |
-| `0.13`        | `0.2-0.3`            |
-| `0.12`        | `0.1`                |
+| bevy   | bevy-histrion-packer |
+| ------ | -------------------- |
+| `0.15` | `0.5`                |
+| `0.14` | `0.4`                |
+| `0.13` | `0.2-0.3`            |
+| `0.12` | `0.1`                |
 
 ## License
 

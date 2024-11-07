@@ -3,7 +3,6 @@ use crate::{encoding::*, Error, Result};
 use bevy::asset::io::{AssetReader, AssetReaderError, AsyncSeekForward, PathStream, Reader};
 use futures_io::AsyncRead;
 use memmap2::Mmap;
-use parking_lot::Mutex;
 use std::io::Cursor;
 use std::mem::ManuallyDrop;
 use std::pin::Pin;
@@ -168,9 +167,10 @@ pub struct HpakEntryReader {
 
 enum ReaderState {
     Uncompressed(Cursor<Vec<u8>>),
+    #[cfg(feature = "deflate")]
     Compressed {
         cursor: u64,
-        decoder: Arc<Mutex<dyn Read + Send + Sync + 'static>>,
+        decoder: Arc<parking_lot::Mutex<dyn Read + Send + Sync + 'static>>,
     },
 }
 
@@ -185,9 +185,10 @@ impl HpakEntryReader {
 
         let state = match compression_method {
             CompressionMethod::None => ReaderState::Uncompressed(slice),
+            #[cfg(feature = "deflate")]
             CompressionMethod::Deflate => ReaderState::Compressed {
                 cursor: 0,
-                decoder: Arc::new(Mutex::new(Box::new(
+                decoder: Arc::new(parking_lot::Mutex::new(Box::new(
                     flate2::read::DeflateDecoder::new_with_buf(slice, vec![0u8; 4 * 1024]),
                 ))),
             },
@@ -209,6 +210,7 @@ impl AsyncRead for HpakEntryReader {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Poll::Pending,
                 Err(e) => Poll::Ready(Err(e)),
             },
+            #[cfg(feature = "deflate")]
             ReaderState::Compressed { cursor, decoder } => {
                 let mut decoder = decoder.lock();
                 match decoder.read(buf) {
@@ -229,7 +231,7 @@ impl AsyncSeekForward for HpakEntryReader {
     fn poll_seek_forward(
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
-        mut offset: u64,
+        offset: u64,
     ) -> Poll<futures_io::Result<u64>> {
         match &mut self.state {
             ReaderState::Uncompressed(cursor) => {
@@ -239,7 +241,9 @@ impl AsyncSeekForward for HpakEntryReader {
                     Err(e) => Poll::Ready(Err(e)),
                 }
             }
+            #[cfg(feature = "deflate")]
             ReaderState::Compressed { cursor, decoder } => {
+                let mut offset = offset;
                 let mut decoder = decoder.lock();
                 let mut read_buffer = vec![0u8; 4096.min(offset as usize)];
 
@@ -281,7 +285,10 @@ mod tests {
 
     #[rstest]
     #[case("test.png", CompressionMethod::None)]
-    #[case("test.png.deflate", CompressionMethod::Deflate)]
+    #[cfg_attr(
+        feature = "deflate",
+        case("test.png.deflate", CompressionMethod::Deflate)
+    )]
     fn it_read_entry(#[case] name: &str, #[case] compression_method: CompressionMethod) {
         let uncompressed =
             std::fs::read(format!("{}/fuzz/test.png", env!("CARGO_MANIFEST_DIR"),)).unwrap();
@@ -307,7 +314,10 @@ mod tests {
 
     #[rstest]
     #[case("test.png", CompressionMethod::None)]
-    #[case("test.png.deflate", CompressionMethod::Deflate)]
+    #[cfg_attr(
+        feature = "deflate",
+        case("test.png.deflate", CompressionMethod::Deflate)
+    )]
     fn it_seek_entry(#[case] name: &str, #[case] compression_method: CompressionMethod) {
         let base = std::fs::read(format!("{}/fuzz/test.png", env!("CARGO_MANIFEST_DIR"),)).unwrap();
 

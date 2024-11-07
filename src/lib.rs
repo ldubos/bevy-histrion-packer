@@ -14,7 +14,9 @@ use bevy::{
 };
 use thiserror::Error;
 
-pub use format::{HpakReader, HpakWriter};
+pub use format::HpakReader;
+#[cfg(feature = "writer")]
+pub use format::HpakWriter;
 
 /// The magic of the HPAK file format.
 pub const MAGIC: [u8; 4] = *b"HPAK";

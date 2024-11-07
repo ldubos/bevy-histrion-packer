@@ -1,4 +1,5 @@
 mod reader;
+#[cfg(feature = "writer")]
 mod writer;
 
 use std::{
@@ -12,6 +13,7 @@ use bevy::utils::{hashbrown::HashTable, AHasher};
 use crate::{encoding::*, Result};
 
 pub use reader::*;
+#[cfg(feature = "writer")]
 pub use writer::*;
 
 #[derive(Debug, Clone)]
@@ -179,6 +181,7 @@ pub enum CompressionMethod {
     #[default]
     None = 0,
     /// Deflate(level), level is a number between 0 and 9
+    #[cfg(feature = "deflate")]
     Deflate = 1,
 }
 
@@ -186,40 +189,50 @@ impl CompressionMethod {
     pub fn compress<R: Read, W: Write>(&self, mut reader: R, mut writer: W) -> Result<u64> {
         match self {
             CompressionMethod::None => Ok(std::io::copy(&mut reader, &mut writer)?),
+            #[cfg(feature = "deflate")]
             CompressionMethod::Deflate => {
                 use zopfli::{Format::Deflate, Options};
 
-                let mut writer = WriterCounter::new(writer);
+                let mut writer = write_counter::WriterCounter::new(writer);
                 zopfli::compress(Options::default(), Deflate, &mut reader, &mut writer)?;
 
-                Ok(writer.total_out)
+                Ok(writer.total_out())
             }
         }
     }
 }
 
-struct WriterCounter<W: Write> {
-    inner: W,
-    total_out: u64,
-}
+#[cfg(feature = "deflate")]
+mod write_counter {
+    use std::io::Write;
 
-impl<W: Write> WriterCounter<W> {
-    fn new(inner: W) -> Self {
-        Self {
-            inner,
-            total_out: 0,
+    pub struct WriterCounter<W: Write> {
+        inner: W,
+        total_out: u64,
+    }
+
+    impl<W: Write> WriterCounter<W> {
+        pub fn new(inner: W) -> Self {
+            Self {
+                inner,
+                total_out: 0,
+            }
+        }
+
+        pub fn total_out(&self) -> u64 {
+            self.total_out
         }
     }
-}
 
-impl<W: Write> Write for WriterCounter<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.total_out += buf.len() as u64;
-        self.inner.write(buf)
-    }
+    impl<W: Write> Write for WriterCounter<W> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.total_out += buf.len() as u64;
+            self.inner.write(buf)
+        }
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.flush()
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.inner.flush()
+        }
     }
 }
 
@@ -227,6 +240,7 @@ impl From<CompressionMethod> for u8 {
     fn from(value: CompressionMethod) -> Self {
         match value {
             CompressionMethod::None => 0,
+            #[cfg(feature = "deflate")]
             CompressionMethod::Deflate => 1,
         }
     }
@@ -244,6 +258,7 @@ impl Decode for CompressionMethod {
 
         match variant {
             0 => Ok(CompressionMethod::None),
+            #[cfg(feature = "deflate")]
             1 => Ok(CompressionMethod::Deflate),
             _ => Err(crate::Error::InvalidFileFormat),
         }
@@ -272,7 +287,7 @@ mod tests {
 
     #[rstest]
     #[case(CompressionMethod::None, 0)]
-    #[case(CompressionMethod::Deflate, 42)]
+    #[cfg_attr(feature = "deflate", case(CompressionMethod::Deflate, 42))]
     fn it_encode_decode_header(#[case] method: CompressionMethod, #[case] offset: u64) {
         let header = HpakHeader {
             meta_compression_method: method,
@@ -289,7 +304,10 @@ mod tests {
 
     #[rstest]
     #[case(CompressionMethod::None, 16, 32, 64, 128)]
-    #[case(CompressionMethod::Deflate, 32, 64, 128, 256)]
+    #[cfg_attr(
+        feature = "deflate",
+        case(CompressionMethod::Deflate, 32, 64, 128, 256)
+    )]
     fn it_encode_decode_file_entry(
         #[case] method: CompressionMethod,
         #[case] hash: u64,
@@ -315,7 +333,7 @@ mod tests {
 
     #[rstest]
     #[case(CompressionMethod::None)]
-    #[case(CompressionMethod::Deflate)]
+    #[cfg_attr(feature = "deflate", case(CompressionMethod::Deflate))]
     fn it_encode_decode_compression_method(#[case] method: CompressionMethod) {
         assert_eq!(method, encode_decode(method));
     }
@@ -326,8 +344,6 @@ mod tests {
         let mut bytes = Vec::new();
         // invalid variant
         u8::MAX.encode(&mut bytes).unwrap();
-        // any level
-        u8::MIN.encode(&mut bytes).unwrap();
 
         let _ = CompressionMethod::decode(&mut bytes.as_slice()).unwrap();
     }
