@@ -14,9 +14,7 @@ categories = [
 ]
 repository = "https://github.com/ldubos/bevy-histrion-packer"
 documentation = "https://docs.rs/bevy-histrion-packer"
-description = """
-A Bevy plugin to allows to efficiently pack all game assets, such as textures, audio files, and other resources, into a single common PAK like file format.
-"""
+description = "A Bevy Plugin to pack all your game assets into a single common PAK like file format."
 
 [features]
 default = ["deflate", "writer"]
