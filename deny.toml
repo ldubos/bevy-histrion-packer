@@ -28,7 +28,12 @@ allow = [
   "Unlicense",
   "Zlib",
 ]
-exceptions = [{ name = "unicode-ident", allow = ["Unicode-DFS-2016"] }]
+exceptions = [
+  { name = "unicode-ident", allow = [
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+  ] },
+]
 confidence-threshold = 0.8
 
 [bans]
