@@ -51,7 +51,7 @@ impl HpakWriter {
     pub fn add_entry(
         &mut self,
         path: impl AsRef<Path>,
-        meta: impl Read,
+        mut meta: impl Read,
         data: impl Read,
         compression_method: CompressionMethod,
     ) -> Result<()> {
@@ -67,11 +67,15 @@ impl HpakWriter {
 
         self.pad_to_alignment()?;
 
+        let mut meta_str = String::new();
+        meta.read_to_string(&mut meta_str)?;
+
         let meta_offset = self.offset()?;
 
-        let meta_size = self
-            .meta_compression_method
-            .compress(meta, &mut self.output)?;
+        let meta_size = self.meta_compression_method.compress(
+            std::io::Cursor::new(ron_minify(meta_str.as_str())),
+            &mut self.output,
+        )?;
         let data_size = compression_method.compress(data, &mut self.output)?;
 
         let entry = HpakFileEntry {
@@ -183,5 +187,140 @@ impl HpakWriter {
         self.output.flush()?;
 
         Ok(())
+    }
+}
+
+fn ron_minify(data: &str) -> Vec<u8> {
+    #[derive(Debug, PartialEq)]
+    enum State {
+        None,
+        String(StringState),
+        Comment(CommentType),
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum CommentType {
+        Line,
+        Block,
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum StringState {
+        None,
+        Escape,
+    }
+
+    let mut output = Vec::new();
+    let mut data = data.chars().peekable();
+    let mut state: State = State::None;
+    let mut prev: Option<char> = None;
+
+    macro_rules! push {
+        ($c:expr) => {
+            prev.replace($c);
+            output.push($c);
+        };
+    }
+
+    while let Some(&c) = data.peek() {
+        match state {
+            State::String(StringState::None) => match c {
+                '\\' => {
+                    state = State::String(StringState::Escape);
+                }
+                '"' => {
+                    state = State::None;
+                    push!(c);
+                }
+                _ => {
+                    push!(c);
+                }
+            },
+            State::String(StringState::Escape) => match c {
+                't' => {
+                    push!('\t');
+                    state = State::String(StringState::None);
+                }
+                _ => {
+                    push!('\\');
+                    push!(c);
+                    state = State::String(StringState::None);
+                }
+            },
+            State::Comment(CommentType::Line) if c == '\n' => {
+                state = State::None;
+            }
+            State::Comment(CommentType::Block) if c == '/' && prev == Some('*') => {
+                state = State::None;
+            }
+            State::None => match c {
+                '"' => {
+                    state = State::String(StringState::None);
+                    push!(c);
+                }
+                '/' if prev == Some('/') => {
+                    state = State::Comment(CommentType::Line);
+                }
+                '*' if prev == Some('/') => {
+                    state = State::Comment(CommentType::Block);
+                }
+                '/' => {
+                    prev.replace(c);
+                }
+                _ => {
+                    if !c.is_ascii_whitespace() {
+                        push!(c);
+                    }
+                }
+            },
+            _ => {
+                prev.replace(c);
+            }
+        }
+
+        data.next();
+    }
+
+    output.into_iter().collect::<String>().into_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use rstest::*;
+
+    #[rstest]
+    #[case(r#""Hello World!""#, r#""Hello World!""#)]
+    #[case(r#""Hello\nWorld!""#, r#""Hello\nWorld!""#)]
+    #[case(r#""Hello\ \t World!""#, "\"Hello\\ \t World!\"")]
+    #[case(r#"GameConfig( // optional struct name
+    window_size: (800, 600),
+    window_title: "PAC-MAN",
+    fullscreen: false,
+
+    mouse_sensitivity: 1.4,
+    key_bindings: {
+        "up": Up,
+        "down": Down,
+        "left": Left,
+        "right": Right,
+
+        // Uncomment to enable WASD controls
+        /*
+        "W": Up,
+        "S": Down,
+        "A": Left,
+        "D": Right,
+        */
+    },
+
+    difficulty_options: (
+        start_difficulty: Easy,
+        adaptive: false,
+    ),
+)"#, "GameConfig(window_size:(800,600),window_title:\"PAC-MAN\",fullscreen:false,mouse_sensitivity:1.4,key_bindings:{\"up\":Up,\"down\":Down,\"left\":Left,\"right\":Right,},difficulty_options:(start_difficulty:Easy,adaptive:false,),)")]
+    fn it_minify_ron(#[case] input: &str, #[case] output: &str) {
+        assert_eq!(output, String::from_utf8(ron_minify(input)).unwrap());
     }
 }

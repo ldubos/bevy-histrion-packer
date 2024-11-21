@@ -47,8 +47,8 @@ fn main() {
         crate_dir.join("imported_assets/Default"),
         // output file
         crate_dir.join("assets.hpak"),
-        // use deflate compression method for metadata
-        bhp::CompressionMethod::Deflate,
+        // do not compress metadata
+        bhp::CompressionMethod::None,
         // use deflate compression method as default for data
         bhp::CompressionMethod::Deflate,
         // use default extensions compression method

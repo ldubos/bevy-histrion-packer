@@ -10,16 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added a complete example in `example` to show how to use BHP end-to-end
+- Added RON minification for `.meta` files in `Writer`
+- Added a `with_padding` option to align entries to 4096 bytes in `Writer`
 
 ### Changed
 
-- Bump `bevy` version to `0.15`
-- Bump `thiserror` version to `2.0`
-- `Deflate` compression now uses [google's zopfli](https://crates.io/crates/zopfli) for better compression ratio
+- Upgraded `bevy` to `0.15`
+- Upgraded `thiserror` to `2.0`
+- `Deflate` compression now uses [google's zopfli](https://crates.io/crates/zopfli) for better compression ratios
 - `Writer` no longer uses tempfile for writing the archive
 - The archive format has been updated to version 6
-- `HpakReader` now uses `memmap2` to read the archive
-- `HpakWriter` can now take `with_padding` option to align data entries to 4096 bytes
+- Switched to `memmap2` for improved archive reading in `HpakReader`
 - `pack_assets_folder` now takes more options to control the compression method and padding
 
 ### Removed
