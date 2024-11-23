@@ -55,8 +55,10 @@ fn main() {
         bhp::writer::default_extensions_compression_method(),
         // don't ignore missing meta
         false,
-        // don't add padding
-        false,
+        // don't apply any alignment
+        // to align to 4096 bytes you could use:
+        // Some(4096),
+        None,
     )
     .unwrap();
 }

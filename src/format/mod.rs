@@ -1,6 +1,6 @@
 mod reader;
 #[cfg(feature = "writer")]
-mod writer;
+pub mod writer;
 
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
@@ -13,8 +13,6 @@ use bevy::utils::hashbrown::HashTable;
 use crate::{encoding::*, Result};
 
 pub use reader::*;
-#[cfg(feature = "writer")]
-pub use writer::*;
 
 #[derive(Debug, Clone)]
 pub struct HpakHeader {

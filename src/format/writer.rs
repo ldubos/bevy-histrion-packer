@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
@@ -12,7 +12,7 @@ pub struct HpakWriter {
     output: File,
     meta_compression_method: CompressionMethod,
     entries: BTreeMap<PathBuf, HpakFileEntry>,
-    with_padding: bool,
+    with_alignment: Option<u64>,
     finalized: bool,
 }
 
@@ -23,8 +23,14 @@ impl HpakWriter {
     pub fn new(
         path: impl AsRef<Path>,
         meta_compression_method: CompressionMethod,
-        with_padding: bool,
+        with_alignment: Option<u64>,
     ) -> Result<Self> {
+        if let Some(alignment) = with_alignment {
+            if alignment & (alignment - 1) != 0 {
+                return Err(Error::InvalidAlignment(alignment));
+            }
+        }
+
         let mut output = OpenOptions::new()
             .write(true)
             .create(true)
@@ -42,7 +48,7 @@ impl HpakWriter {
             output,
             meta_compression_method,
             entries: BTreeMap::new(),
-            with_padding,
+            with_alignment,
             finalized: false,
         })
     }
@@ -168,15 +174,15 @@ impl HpakWriter {
     }
 
     fn pad_to_alignment(&mut self) -> Result<()> {
-        if !self.with_padding {
+        let alignment = if let Some(alignment) = self.with_alignment {
+            alignment
+        } else {
             return Ok(());
-        }
-
-        const ALIGNMENT: u64 = 4096;
+        };
 
         let offset = self.offset()?;
 
-        let aligned = (offset + (ALIGNMENT - 1)) & !(ALIGNMENT - 1);
+        let aligned = (offset + (alignment - 1)) & !(alignment - 1);
         let padding = aligned - offset;
 
         if padding > 0 {
@@ -282,6 +288,220 @@ fn ron_minify(data: &str) -> Vec<u8> {
     }
 
     output.into_iter().collect::<String>().into_bytes()
+}
+
+/// A set of default compression methods for some extensions.
+///
+/// | Extension        | Compression Method                                 |
+/// | ---------------- | -------------------------------------------------- |
+/// | **ogg**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **oga**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **spx**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **mp3**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **qoa**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **exr**          | [`None`](CompressionMethod::None)                  |
+/// | **png**          | [`None`](CompressionMethod::None)                  |
+/// | **jpg**          | [`None`](CompressionMethod::None)                  |
+/// | **jpeg**         | [`None`](CompressionMethod::None)                  |
+/// | **webp**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **ktx**          | [`None`](CompressionMethod::None)                  |
+/// | **ktx2**         | [`None`](CompressionMethod::None)                  |
+/// | **basis**        | [`None`](CompressionMethod::None)                  |
+/// | **qoi**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **dds**          | [`None`](CompressionMethod::None)                  |
+/// | **tga**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **bmp**          | [`None`](CompressionMethod::None)                  |
+/// | **gltf**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **glb**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **obj**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **fbx**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **meshlet_mesh** | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **glsl**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **hlsl**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **vert**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **frag**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **vs**           | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **fs**           | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **wgsl**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **spv**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **metal**        | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **txt**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **toml**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **ron**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **json**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **yaml**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **yml**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **xml**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **md**           | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **mp4**          | [`Deflate`](CompressionMethod::Deflate)            |
+/// | **webm**         | [`Deflate`](CompressionMethod::Deflate)            |
+pub fn default_extensions_compression_method(
+) -> Option<std::collections::HashMap<String, CompressionMethod>> {
+    #[cfg(feature = "deflate")]
+    const DEFAULT_COMPRESSION_METHOD: CompressionMethod = CompressionMethod::Deflate;
+    #[cfg(not(feature = "deflate"))]
+    const DEFAULT_COMPRESSION_METHOD: CompressionMethod = CompressionMethod::None;
+
+    std::collections::HashMap::from([
+        // audio
+        ("ogg".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("oga".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("spx".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("mp3".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("qoa".to_string(), DEFAULT_COMPRESSION_METHOD),
+        // image
+        ("exr".to_string(), CompressionMethod::None),
+        ("png".to_string(), CompressionMethod::None),
+        ("jpg".to_string(), CompressionMethod::None),
+        ("jpeg".to_string(), CompressionMethod::None),
+        ("webp".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("ktx".to_string(), CompressionMethod::None),
+        ("ktx2".to_string(), CompressionMethod::None),
+        ("basis".to_string(), CompressionMethod::None),
+        ("qoi".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("dds".to_string(), CompressionMethod::None),
+        ("tga".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("bmp".to_string(), CompressionMethod::None),
+        // 3d models
+        ("gltf".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("glb".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("obj".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("fbx".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("meshlet_mesh".to_string(), DEFAULT_COMPRESSION_METHOD),
+        // shaders
+        ("glsl".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("hlsl".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("vert".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("frag".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("vs".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("fs".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("wgsl".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("spv".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("metal".to_string(), DEFAULT_COMPRESSION_METHOD),
+        // text
+        ("txt".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("toml".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("ron".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("json".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("yaml".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("yml".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("xml".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("md".to_string(), DEFAULT_COMPRESSION_METHOD),
+        // video
+        ("mp4".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("webm".to_string(), DEFAULT_COMPRESSION_METHOD),
+    ])
+    .into()
+}
+
+/// Pack all assets presents in the `assets_dir` into a single `output_file` HPAK file.
+///
+/// The `meta_compression_method` is used to compress the metadata of the assets.
+/// The `default_compression_method` is used to compress the data of the assets if no `method`
+/// is specified in the `extensions_compression_method` map for the asset's extension.
+///
+/// If `with_alignment` is Some(N), padding will be added to align entries to N bytes.
+pub fn pack_assets_folder(
+    assets_dir: impl AsRef<Path>,
+    output_file: impl AsRef<Path>,
+    meta_compression_method: CompressionMethod,
+    default_compression_method: CompressionMethod,
+    extensions_compression_method: Option<std::collections::HashMap<String, CompressionMethod>>,
+    ignore_missing_meta: bool,
+    with_alignment: Option<u64>,
+) -> Result<()> {
+    let assets_dir = assets_dir.as_ref();
+    let extensions_compression_method = extensions_compression_method.as_ref();
+    let mut writer = HpakWriter::new(output_file, meta_compression_method, with_alignment)?;
+
+    if !assets_dir.exists() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("assets_dir directory does not exist: {assets_dir:?}"),
+        )));
+    }
+
+    if !assets_dir.is_dir() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("assets_dir is not a directory: {assets_dir:?}"),
+        )));
+    }
+
+    for path in walkdir(assets_dir) {
+        let extension = path.extension().unwrap_or_default().to_os_string();
+
+        if extension.eq("meta") {
+            continue;
+        }
+
+        let entry = match path.strip_prefix(assets_dir) {
+            Ok(path) => path.to_path_buf(),
+            Err(e) => {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("invalid path: {e}"),
+                )))
+            }
+        };
+
+        let meta_path = get_meta_path(&path);
+
+        let mut meta_file: Box<dyn std::io::Read> = if meta_path.exists() {
+            Box::new(fs::File::open(&meta_path)?)
+        } else if ignore_missing_meta {
+            Box::new(std::io::Cursor::new(vec![]))
+        } else {
+            continue;
+        };
+
+        let mut data_file = fs::File::open(&path)?;
+
+        let extension = path
+            .extension()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+
+        let compression_method = extensions_compression_method
+            .and_then(|extensions| extensions.get(&extension).copied())
+            .unwrap_or(default_compression_method);
+
+        writer.add_entry(&entry, &mut meta_file, &mut data_file, compression_method)?;
+    }
+
+    writer.finalize()?;
+
+    Ok(())
+}
+
+#[inline]
+fn get_meta_path(path: impl AsRef<Path>) -> PathBuf {
+    let mut meta_path = path.as_ref().to_path_buf();
+    let mut extension = meta_path.extension().unwrap_or_default().to_os_string();
+    extension.push(".meta");
+    meta_path.set_extension(extension);
+    meta_path
+}
+
+fn walkdir<'a>(root: impl AsRef<Path>) -> Box<dyn Iterator<Item = PathBuf> + 'a> {
+    Box::new(
+        fs::read_dir(root.as_ref())
+            .unwrap()
+            .filter_map(|entry| match entry {
+                Ok(entry) => {
+                    let path = entry.path();
+
+                    if path.is_dir() {
+                        Some(walkdir(path).collect::<Vec<_>>())
+                    } else {
+                        Some(vec![path])
+                    }
+                }
+                Err(_) => None,
+            })
+            .flatten(),
+    )
 }
 
 #[cfg(test)]

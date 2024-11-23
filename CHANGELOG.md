@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added a complete example in `example` to show how to use BHP end-to-end
 - Added RON minification for `.meta` files in `HpakWriter`
-- Added a `with_padding` option to align entries to 4096 bytes in `HpakWriter`
+- Added a `with_alignment` option to align the pairs of meta+data to N bytes in `HpakWriter`
 
 ### Changed
 
@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HpakWriter` no longer uses tempfile for writing the archive
 - The archive format has been updated to version 6
 - Switched to `memmap2` for improved archive reading in `HpakReader`
-- `pack_assets_folder` now takes more options to control the compression method and padding
+- `pack_assets_folder` now takes more options to control the compression method and alignment
 
 ### Removed
 
