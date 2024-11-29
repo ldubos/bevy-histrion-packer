@@ -1,7 +1,7 @@
 [package]
 name = "bevy-histrion-packer"
 authors = ["Ludwig DUBOS <ludwig.dubos@proton.me>"]
-version = "0.5.0-rc.1"
+version = "0.5.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -34,7 +34,7 @@ zopfli = { version = "0.8", default-features = false, features = [
 ], optional = true }
 
 [dependencies.bevy]
-version = "0.15.0-rc.3"
+version = "0.15.0"
 default-features = false
 features = ["bevy_asset"]
 
