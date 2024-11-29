@@ -1,177 +1,79 @@
-# Bevy Histrion Packer
+<h1 align="center">bevy-histrion-packer</h1>
+
+<div align="center">
 
 ![MIT or Apache 2.0](https://img.shields.io/badge/License-MIT%20or%20Apache%202.0-blue.svg)
-[![Docs](https://docs.rs/bevy-histrion-packer/badge.svg)](https://docs.rs/bevy-histrion-packer)
 [![Crate](https://img.shields.io/crates/v/bevy-histrion-packer.svg)](https://crates.io/crates/bevy-histrion-packer)
+[![Docs](https://docs.rs/bevy-histrion-packer/badge.svg)](https://docs.rs/bevy-histrion-packer)
+[![CI](https://github.com/ldubos/bevy-histrion-packer/workflows/CI/badge.svg)](https://github.com/ldubos/bevy-histrion-packer/actions)
+
+Pack all your game assets into a single common PAK like file format.
+
+</div>
 
 > [!WARNING]
-> This crate is in early development, and its API may change in the future.
+> This crate is in early development.<br/>
+> Use it with caution as the format and API is not yet stabilized.
 
-A Bevy plugin to allows to efficiently pack all game assets, such as textures, audio files, and other resources, into a single common PAK like file format.
+## File Structure
 
-## Usage
-
-### Packing assets
-
-By default, the `pack_assets_folder` function compress metadata with Brotli and uses Deflate for data except for some specific loaders/extensions:
-
-|Compression Method|Extensions/Loaders|
-|------------------|------------------|
-|None              |.exr, .basis, .ktx2, .qoi, .qoa, .ogg, .oga, .spx, .mp3|
-|Brotli            |.ron, .json, .yml, .yaml, .toml, .txt, .ini, .cfg, .gltf, .wgsl, .glsl, .hlsl, .vert, .frag, .vs, .fs, .lua, .svg, .js, .html, .css, .xml, .mtlx, .usda|
-|Deflate           |**Default**|
-
-Pack assets folder with `pack_assets_folder` function:
-
-```toml
-# Cargo.toml
-
-[dependencies]
-bevy = "0.14"
-bevy-histrion-packer = "0.4"
-
-[build-dependencies]
-bevy = { version = "0.14", features = [
-  "asset_processor",
-  "file_watcher",
-  "embedded_watcher",
-] }
-bevy-histrion-packer = { version = "0.4", features = [
-  "writer",
-] }
 ```
+         +--------------------------------+ 0x0000
+         |             Header             |
+         +--------------------------------+
+         |          File Content          |
+         +--------------------------------+ <entries_offset>
+         |         Entries Tables         |
+         +--------------------------------+
 
-```rust
-// build.rs
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // only run this code for release builds
-    #[cfg(not(debug_assertions))]
-    {
-        use bevy::{app::ScheduleRunnerPlugin, prelude::*};
-        use bevy_histrion_packer::pack_assets_folder;
-        use std::path::Path;
+Header
+====================================================
+Offset  Size    Description
+0x0000  4       Magic number (HPAK signature)
+0x0004  4       Version number (u32)
+0x0008  1       Metadata compression method
+0x0009  8       Entries offset (u64)
 
-        let imported_assets = Path::new("imported_assets");
+Directory Entry
+====================================================
+Offset  Size    Description
+0x0000  8       Hash of the directory path
+0x0008  8       Number of paths in the directory
+0x0010  var     Array of paths in the directory
 
-        // delete the imported_assets folder
-        if imported_assets.exists() {
-            std::fs::remove_dir_all(imported_assets)?;
-        }
+File Entry
+====================================================
+Offset  Size    Description
+0x0000  8       Path hash (u64)
+0x0008  1       Compression method
+0x0009  8       Metadata offset (u64)
+0x0011  8       Metadata size (u64)
+0x0019  8       Data size (u64)
 
-        // generate the processed assets during build time
-        let mut app = App::new();
-
-        app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_once()))
-            .add_plugins(bevy::asset::AssetPlugin {
-                mode: AssetMode::Processed,
-                ..Default::default()
-            })
-            .init_asset::<Shader>()
-            .init_asset_loader::<bevy::render::render_resource::ShaderLoader>()
-            .add_plugins(bevy::render::texture::ImagePlugin::default())
-            .add_plugins(bevy::pbr::PbrPlugin::default())
-            .add_plugins(bevy::gltf::GltfPlugin::default());
-
-        app.run();
-
-        // pack the assets folder
-        let source = Path::new("imported_assets/Default");
-        let destination = Path::new("assets.hpak");
-
-        pack_assets_folder(&source, &destination)?;
-    }
-
-    Ok(())
-}
-```
-
-It's also possible to have more control over the packing process with `Writer`:
-
-```rust
-// build.rs
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // only run this code for release builds
-    #[cfg(not(debug_assertions))]
-    {
-        use bevy_histrion_packer::{CompressionAlgorithm, WriterBuilder};
-        use std::fs::{File, OpenOptions};
-        use std::path::Path;
-
-        let destination = Path::new("assets.hpak");
-
-        let mut writer = WriterBuilder::new(
-            OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .create(true)
-                .open(&destination)?,
-        )
-        .meta_compression(CompressionAlgorithm::Brotli)
-        .build()?;
-
-        let mut data = File::open("assets/texture_1.png")?;
-        let mut meta = File::open("assets/texture_1.png.meta")?;
-
-        writer.add_entry(
-            Path::new("my_texture_path.png"),
-            &mut meta,
-            &mut data,
-            CompressionAlgorithm::Deflate,
-        )?;
-
-        // ...
-
-        writer.finish()?;
-    }
-
-    Ok(())
-}
-```
-
-### Loading assets
-
-```rust
-// main.rs
-use bevy::prelude::*;
-use bevy_histrion_packer::HistrionPackerPlugin;
-
-fn main() {
-    let mut app = App::new();
-
-    app.add_plugins(
-        DefaultPlugins
-            .build()
-            .add_before::<bevy::asset::AssetPlugin, HistrionPackerPlugin>(
-                HistrionPackerPlugin {
-                    source: "assets.hpak".into(),
-                    mode: bevy_histrion_packer::HistrionPackerMode::ReplaceDefaultProcessed,
-                },
-            )
-            .set(bevy::asset::AssetPlugin {
-                mode: AssetMode::Processed,
-                ..default()
-            }),
-    );
-
-    app.run();
-}
+Entries Tables
+====================================================
+Offset  Size    Description
+0x0000  8       Number of directory entries (u64)
+0x0008  var     Array of directory entries
+0x????  8       Number of file entries (u64)
+0x????  var     Array of file entries
 ```
 
 ## Features
 
-|Feature|Description|
-|-|-|
-|deflate|Enables the deflate compression algorithm.|
-|brotli|Enables the brotli compression algorithm.|
-|writer|Enables the writer feature, to generate a HPAK file from a folder manually with `Writer`.|
+| feature | description                                                                              |
+| ------- | ---------------------------------------------------------------------------------------- |
+| deflate | Enables the deflate compression algorithm.                                               |
+| writer  | Enables the ability to generate a HPAK file with [`HpakWriter`](./src/format/writer.rs). |
 
 ## Bevy Compatibility
 
-| bevy          | bevy-histrion-packer |
-|---------------|----------------------|
-| `0.14`        | `0.4`                |
-| `0.13`        | `0.2-0.3`            |
-| `0.12`        | `0.1`                |
+| bevy   | bevy-histrion-packer |
+| ------ | -------------------- |
+| `0.15` | `0.5`                |
+| `0.14` | `0.4`                |
+| `0.13` | `0.2-0.3`            |
+| `0.12` | `0.1`                |
 
 ## License
 

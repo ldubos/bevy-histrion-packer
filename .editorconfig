@@ -19,3 +19,7 @@ indent_size = 2
 
 [.git{attributes,ignore,keep}]
 insert_final_newline = false
+
+[*.text]
+end_of_line = lf
+insert_final_newline = false

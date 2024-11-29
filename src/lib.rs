@@ -3,33 +3,62 @@
 #[cfg(not(any(windows, unix)))]
 compile_error!("bevy-histrion-packer is not supported on this platform");
 
-pub mod errors;
-mod hpak;
-pub mod utils;
-
-/// The fomrat version of the HPAK file format.
-pub const VERSION: u16 = 3;
-
-/// The length of the HPAK magic.
-pub const MAGIC_LEN: usize = 4;
-
-/// The magic of the HPAK file format.
-pub const MAGIC: &[u8; MAGIC_LEN] = b"HPAK";
+mod encoding;
+mod format;
 
 use std::path::PathBuf;
 
 use bevy::{
-    asset::io::{AssetSource, AssetSourceId},
+    asset::io::{AssetReaderError, AssetSource, AssetSourceId},
     prelude::*,
 };
-pub use hpak::compression::CompressionAlgorithm;
-pub use hpak::reader::HPakAssetsReader;
+use thiserror::Error;
 
-#[cfg(feature = "writer")]
-pub use hpak::writer::{Writer, WriterBuilder};
+pub use format::{CompressionMethod, HpakReader};
 
-#[cfg(feature = "writer")]
-pub use utils::pack_assets_folder;
+/// The magic of the HPAK file format.
+pub const MAGIC: [u8; 4] = *b"HPAK";
+
+/// The fomrat version of the HPAK file format.
+pub const VERSION: u32 = 6;
+
+pub type Result<T> = core::result::Result<T, Error>;
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("cannot add hpak entry after finalize")]
+    CannotAddEntryAfterFinalize,
+    #[error("duplicate hpak entry: {0}")]
+    DuplicateEntry(PathBuf),
+    #[error("hpak entry not found: {0}")]
+    EntryNotFound(PathBuf),
+    #[error("invalid hpak file format")]
+    InvalidFileFormat,
+    #[error("bad hpak version: {0}")]
+    BadVersion(u32),
+    #[error("invalid asset metadata: {0}")]
+    InvalidAssetMeta(String),
+    #[error("encountered an io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("encountered an invalid alignment: {0}, must be a power of 2")]
+    InvalidAlignment(u64),
+    #[error("encountered an invalid utf8 error: {0}")]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+}
+
+impl From<Error> for AssetReaderError {
+    fn from(err: Error) -> Self {
+        use Error::*;
+
+        match err {
+            EntryNotFound(path) => AssetReaderError::NotFound(path),
+            Io(err) => AssetReaderError::Io(err.into()),
+            err => AssetReaderError::Io(
+                std::io::Error::new(std::io::ErrorKind::Other, format!("{}", err)).into(),
+            ),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum HistrionPackerMode {
@@ -43,23 +72,40 @@ pub enum HistrionPackerMode {
 
 impl Default for HistrionPackerMode {
     fn default() -> Self {
-        Self::Autoload("hpak")
+        Self::ReplaceDefaultProcessed
     }
 }
 
 pub struct HistrionPackerPlugin {
-    pub source: PathBuf,
+    pub source: String,
     pub mode: HistrionPackerMode,
 }
 
 impl Plugin for HistrionPackerPlugin {
-    fn build(&self, app: &mut App) {
-        if !self.source.exists() || !self.source.is_file() {
+    fn build(&self, app: &mut bevy::prelude::App) {
+        let source = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(err) => {
+                bevy::log::error!("cannot get current executable path: {err}");
+                return;
+            }
+        };
+
+        if !source.exists() {
             bevy::log::error!("the source path does not exist or is not a file");
             return;
         }
 
-        let source = self.source.clone();
+        let mut source = match source.canonicalize() {
+            Ok(path) => path,
+            Err(err) => {
+                bevy::log::error!("cannot canonicalize current executable path: {err}");
+                return;
+            }
+        };
+
+        source.pop();
+        source.push(&self.source);
 
         match self.mode {
             HistrionPackerMode::Autoload(source_id) => {
@@ -67,7 +113,7 @@ impl Plugin for HistrionPackerPlugin {
                     AssetSourceId::Name(source_id.into()),
                     AssetSource::build().with_reader(move || {
                         let source = source.clone();
-                        Box::new(HPakAssetsReader::new(&source).unwrap())
+                        Box::new(HpakReader::new(&source).unwrap())
                     }),
                 );
             }
@@ -85,10 +131,17 @@ impl Plugin for HistrionPackerPlugin {
                         .with_reader(|| AssetSource::get_default_reader("assets".to_string())())
                         .with_processed_reader(move || {
                             let source = source.clone();
-                            Box::new(HPakAssetsReader::new(&source).unwrap())
+                            Box::new(HpakReader::new(&source).unwrap())
                         }),
                 );
             }
         }
     }
+}
+
+#[cfg(feature = "writer")]
+pub mod writer {
+    use super::*;
+
+    pub use format::writer::*;
 }
