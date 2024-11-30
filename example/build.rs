@@ -12,23 +12,27 @@ fn main() {
 
     // process assets, we can add more assets pre-processing steps here
     App::new()
-        .add_plugins(
-            HeadlessPlugins
-                .set(ScheduleRunnerPlugin::run_loop(Duration::from_millis(33)))
-                .set(bevy::asset::AssetPlugin {
-                    mode: AssetMode::Processed,
-                    ..Default::default()
-                }),
-        )
-        .init_asset::<TextAsset>()
-        .init_asset_loader::<TextAssetLoader>()
+        .add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_millis(16))))
+        .add_plugins(bevy::asset::AssetPlugin {
+            mode: AssetMode::Processed,
+            ..Default::default()
+        })
         .init_asset::<Shader>()
         .init_asset_loader::<ShaderLoader>()
-        .init_asset::<Mesh>()
         .init_asset_loader::<bevy::render::render_resource::ShaderLoader>()
-        .add_plugins(bevy::render::texture::ImagePlugin::default())
-        .add_plugins(bevy::pbr::PbrPlugin::default())
-        .add_plugins(bevy::gltf::GltfPlugin::default())
+        .add_plugins((
+            bevy::render::texture::ImagePlugin::default(),
+            bevy::sprite::SpritePlugin::default(),
+            bevy::gltf::GltfPlugin::default(),
+            bevy::render::mesh::MeshPlugin,
+            bevy::animation::AnimationPlugin,
+            bevy::text::TextPlugin,
+            bevy::core_pipeline::auto_exposure::AutoExposurePlugin,
+        ))
+        // Custom Assets
+        .init_asset::<TextAsset>()
+        .init_asset_loader::<TextAssetLoader>()
+        // Wait for Asset Processors to finish
         .add_systems(
             Update,
             |asset_processor: Res<AssetProcessor>, mut exit_tx: EventWriter<AppExit>| {

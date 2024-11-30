@@ -26,8 +26,6 @@ impl AssetLoader for TextAssetLoader {
         _settings: &(),
         _load_context: &mut LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
-        info!("loading text asset...");
-
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
         Ok(TextAsset(String::from_utf8_lossy(&bytes).to_string()))

@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{app::ScheduleRunnerPlugin, prelude::*};
 
 use bevy_histrion_packer::HistrionPackerPlugin;
 use text_asset::{TextAsset, TextAssetLoader};
@@ -6,8 +6,9 @@ use text_asset::{TextAsset, TextAssetLoader};
 fn main() {
     App::new()
         .add_plugins(
-            HeadlessPlugins
+            DefaultPlugins
                 .build()
+                .set(ScheduleRunnerPlugin::run_once())
                 .add_before::<AssetPlugin>(HistrionPackerPlugin {
                     source: env!("CARGO_MANIFEST_DIR").to_string() + "/assets.hpak",
                     mode: bevy_histrion_packer::HistrionPackerMode::ReplaceDefaultProcessed,

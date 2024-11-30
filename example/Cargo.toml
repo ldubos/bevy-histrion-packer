@@ -7,7 +7,7 @@ edition = "2021"
 publish = false
 
 [workspace.dependencies]
-bevy = "0.15.0-rc.3"
+bevy = { version = "0.15", default-features = false }
 
 [package]
 name = "example"
@@ -16,12 +16,15 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-bevy.workspace = true
-bevy-histrion-packer = { path = "../" }
+bevy = { workspace = true, default-features = false, features = [
+  "bevy_asset",
+  "multi_threaded",
+] }
 text_asset = { path = "text_asset" }
+bevy-histrion-packer = { path = "../" }
 
 [build-dependencies]
-bevy = { workspace = true, features = [
+bevy = { workspace = true, default-features = true, features = [
   "asset_processor",
   "file_watcher",
   "embedded_watcher",
