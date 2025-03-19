@@ -3,11 +3,11 @@ members = ["text_asset", "."]
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [workspace.dependencies]
-bevy = { version = "0.15", default-features = false }
+bevy = { version = "0.16.0-rc.1", default-features = false }
 
 [package]
 name = "example"

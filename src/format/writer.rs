@@ -6,7 +6,7 @@ use std::{
 };
 
 use super::*;
-use crate::{encoding::*, Error, Result};
+use crate::{Error, Result, encoding::*};
 
 pub struct HpakWriter {
     output: File,
@@ -335,8 +335,8 @@ fn ron_minify(data: &str) -> Vec<u8> {
 /// | **md**           | [`Deflate`](CompressionMethod::Deflate)            |
 /// | **mp4**          | [`Deflate`](CompressionMethod::Deflate)            |
 /// | **webm**         | [`Deflate`](CompressionMethod::Deflate)            |
-pub fn default_extensions_compression_method(
-) -> Option<std::collections::HashMap<String, CompressionMethod>> {
+pub fn default_extensions_compression_method()
+-> Option<std::collections::HashMap<String, CompressionMethod>> {
     #[cfg(feature = "deflate")]
     const DEFAULT_COMPRESSION_METHOD: CompressionMethod = CompressionMethod::Deflate;
     #[cfg(not(feature = "deflate"))]
@@ -441,7 +441,7 @@ pub fn pack_assets_folder(
                 return Err(Error::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!("invalid path: {e}"),
-                )))
+                )));
             }
         };
 
@@ -514,7 +514,8 @@ mod tests {
     #[case(r#""Hello World!""#, r#""Hello World!""#)]
     #[case(r#""Hello\nWorld!""#, r#""Hello\nWorld!""#)]
     #[case(r#""Hello\ \t World!""#, "\"Hello\\ \t World!\"")]
-    #[case(r#"GameConfig( // optional struct name
+    #[case(
+        r#"GameConfig( // optional struct name
     window_size: (800, 600),
     window_title: "PAC-MAN",
     fullscreen: false,
@@ -539,7 +540,9 @@ mod tests {
         start_difficulty: Easy,
         adaptive: false,
     ),
-)"#, "GameConfig(window_size:(800,600),window_title:\"PAC-MAN\",fullscreen:false,mouse_sensitivity:1.4,key_bindings:{\"up\":Up,\"down\":Down,\"left\":Left,\"right\":Right,},difficulty_options:(start_difficulty:Easy,adaptive:false,),)")]
+)"#,
+        "GameConfig(window_size:(800,600),window_title:\"PAC-MAN\",fullscreen:false,mouse_sensitivity:1.4,key_bindings:{\"up\":Up,\"down\":Down,\"left\":Left,\"right\":Right,},difficulty_options:(start_difficulty:Easy,adaptive:false,),)"
+    )]
     fn it_minify_ron(#[case] input: &str, #[case] output: &str) {
         assert_eq!(output, String::from_utf8(ron_minify(input)).unwrap());
     }

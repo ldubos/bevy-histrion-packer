@@ -8,9 +8,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bevy::utils::hashbrown::HashTable;
+use bevy::platform_support::collections::HashTable;
 
-use crate::{encoding::*, Result};
+use crate::{Result, encoding::*};
 
 pub use reader::*;
 

@@ -1,9 +1,6 @@
-use bevy::{
-    app::ScheduleRunnerPlugin, asset::processor::AssetProcessor, prelude::*,
-    render::render_resource::ShaderLoader,
-};
+use bevy::prelude::*;
 use bevy_histrion_packer as bhp;
-use std::{env, path::PathBuf, time::Duration};
+use std::{env, path::PathBuf};
 
 use text_asset::{TextAsset, TextAssetLoader};
 
@@ -12,34 +9,34 @@ fn main() {
 
     // process assets, we can add more assets pre-processing steps here
     App::new()
-        .add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_millis(16))))
-        .add_plugins(bevy::asset::AssetPlugin {
-            mode: AssetMode::Processed,
-            ..Default::default()
-        })
-        .init_asset::<Shader>()
-        .init_asset_loader::<ShaderLoader>()
-        .init_asset_loader::<bevy::render::render_resource::ShaderLoader>()
-        .add_plugins((
-            bevy::render::texture::ImagePlugin::default(),
-            bevy::sprite::SpritePlugin::default(),
-            bevy::gltf::GltfPlugin::default(),
-            bevy::render::mesh::MeshPlugin,
-            bevy::animation::AnimationPlugin,
-            bevy::text::TextPlugin,
-            bevy::core_pipeline::auto_exposure::AutoExposurePlugin,
+        .add_plugins(
+            DefaultPlugins
+                .build()
+                .set(bevy::window::WindowPlugin {
+                    primary_window: None,
+                    exit_condition: bevy::window::ExitCondition::DontExit,
+                    ..default()
+                })
+                .set(bevy::asset::AssetPlugin {
+                    mode: AssetMode::Processed,
+                    ..default()
+                }),
+        )
+        .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
+            std::time::Duration::from_secs_f64(1.0 / 30.0),
         ))
         // Custom Assets
         .init_asset::<TextAsset>()
         .init_asset_loader::<TextAssetLoader>()
-        // Wait for Asset Processors to finish
+        // Process Assets
         .add_systems(
             Update,
-            |asset_processor: Res<AssetProcessor>, mut exit_tx: EventWriter<AppExit>| {
+            |asset_processor: Res<bevy::asset::processor::AssetProcessor>,
+             mut exit_tx: EventWriter<AppExit>| {
                 if bevy::tasks::block_on(asset_processor.get_state())
                     == bevy::asset::processor::ProcessorState::Finished
                 {
-                    exit_tx.send(AppExit::Success);
+                    exit_tx.write(AppExit::Success);
                 }
             },
         )

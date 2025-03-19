@@ -1,5 +1,5 @@
 use super::*;
-use crate::{encoding::*, Error, Result};
+use crate::{Error, Result, encoding::*};
 use bevy::asset::io::{AssetReader, AssetReaderError, AsyncSeekForward, PathStream, Reader};
 use futures_io::AsyncRead;
 use memmap2::Mmap;
