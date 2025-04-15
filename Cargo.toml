@@ -6,14 +6,19 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 keywords = ["bevy", "assets", "packer", "bundler", "zlib"]
-categories = [
-  "game-development",
-  "compression",
-  "encoding",
-]
+categories = ["game-development", "compression", "encoding"]
 repository = "https://github.com/ldubos/bevy-histrion-packer"
 documentation = "https://docs.rs/bevy-histrion-packer"
 description = "A Bevy Plugin to pack all your game assets into a single common PAK like file format."
+exclude = [
+  "example/",
+  "fuzz/",
+  ".github/",
+  "rustfmt.toml",
+  "deny.toml",
+  ".editorconfig",
+  ".rust-analyzer",
+]
 
 [features]
 default = ["deflate", "writer"]
