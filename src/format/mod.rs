@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bevy::platform_support::collections::HashTable;
+use bevy::platform::collections::HashTable;
 
 use crate::{Result, encoding::*};
 
