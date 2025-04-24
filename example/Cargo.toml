@@ -7,7 +7,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-bevy = { version = "0.16.0-rc.5", default-features = false }
+bevy = { version = "0.16", default-features = false }
 
 [package]
 name = "example"
