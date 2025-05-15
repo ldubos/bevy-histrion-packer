@@ -216,7 +216,7 @@ fn ron_minify(data: &str) -> Vec<u8> {
         Escape,
     }
 
-    let mut output = Vec::new();
+    let mut output = Vec::with_capacity(data.len());
     let mut data = data.chars().peekable();
     let mut state: State = State::None;
     let mut prev: Option<char> = None;
@@ -233,6 +233,7 @@ fn ron_minify(data: &str) -> Vec<u8> {
             State::String(StringState::None) => match c {
                 '\\' => {
                     state = State::String(StringState::Escape);
+                    push!(c);
                 }
                 '"' => {
                     state = State::None;
@@ -242,17 +243,10 @@ fn ron_minify(data: &str) -> Vec<u8> {
                     push!(c);
                 }
             },
-            State::String(StringState::Escape) => match c {
-                't' => {
-                    push!('\t');
-                    state = State::String(StringState::None);
-                }
-                _ => {
-                    push!('\\');
-                    push!(c);
-                    state = State::String(StringState::None);
-                }
-            },
+            State::String(StringState::Escape) => {
+                push!(c);
+                state = State::String(StringState::None);
+            }
             State::Comment(CommentType::Line) if c == '\n' => {
                 state = State::None;
             }
@@ -513,7 +507,7 @@ mod tests {
     #[rstest]
     #[case(r#""Hello World!""#, r#""Hello World!""#)]
     #[case(r#""Hello\nWorld!""#, r#""Hello\nWorld!""#)]
-    #[case(r#""Hello\ \t World!""#, "\"Hello\\ \t World!\"")]
+    #[case(r#""Hello\ \t World!""#, r#""Hello\ \t World!""#)]
     #[case(
         r#"GameConfig( // optional struct name
     window_size: (800, 600),

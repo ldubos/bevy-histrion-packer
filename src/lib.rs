@@ -19,7 +19,7 @@ pub use format::{CompressionMethod, HpakReader};
 /// The magic of the HPAK file format.
 pub const MAGIC: [u8; 4] = *b"HPAK";
 
-/// The fomrat version of the HPAK file format.
+/// The format version of the HPAK file format.
 pub const VERSION: u32 = 6;
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -28,7 +28,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 pub enum Error {
     #[error("cannot add hpak entry after finalize")]
     CannotAddEntryAfterFinalize,
-    #[error("duplicate hpak entry: {0}")]
+    #[error("duplicated hpak entry: {0}")]
     DuplicateEntry(PathBuf),
     #[error("hpak entry not found: {0}")]
     EntryNotFound(PathBuf),
@@ -86,20 +86,20 @@ impl Plugin for HistrionPackerPlugin {
         let source = match std::env::current_exe() {
             Ok(exe) => exe,
             Err(err) => {
-                bevy::log::error!("cannot get current executable path: {err}");
+                error!("cannot get current executable path: {err}");
                 return;
             }
         };
 
         if !source.exists() {
-            bevy::log::error!("the source path does not exist or is not a file");
+            error!("the source path does not exist or is not a file");
             return;
         }
 
         let mut source = match source.canonicalize() {
             Ok(path) => path,
             Err(err) => {
-                bevy::log::error!("cannot canonicalize current executable path: {err}");
+                error!("cannot canonicalize current executable path: {err}");
                 return;
             }
         };
@@ -119,9 +119,7 @@ impl Plugin for HistrionPackerPlugin {
             }
             HistrionPackerMode::ReplaceDefaultProcessed => {
                 if app.is_plugin_added::<AssetPlugin>() {
-                    bevy::log::error!(
-                        "plugin HistrionPackerPlugin must be added before plugin AssetPlugin"
-                    );
+                    error!("plugin HistrionPackerPlugin must be added before plugin AssetPlugin");
                     return;
                 }
 

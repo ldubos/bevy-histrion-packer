@@ -20,8 +20,8 @@ bevy = { workspace = true, default-features = false, features = [
   "bevy_asset",
   "multi_threaded",
 ] }
-text_asset = { path = "text_asset" }
 bevy-histrion-packer = { path = "../" }
+text_asset = { path = "text_asset" }
 
 [build-dependencies]
 bevy = { workspace = true, default-features = true, features = [
