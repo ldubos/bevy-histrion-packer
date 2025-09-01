@@ -50,8 +50,8 @@ fn main() {
         crate_dir.join("assets.hpak"),
         // do not compress metadata
         bhp::CompressionMethod::None,
-        // use deflate compression method as default for data
-        bhp::CompressionMethod::Deflate,
+        // use zlib compression method as default for data
+        bhp::CompressionMethod::Zlib,
         // use default extensions compression method
         bhp::writer::default_extensions_compression_method(),
         // don't ignore missing meta

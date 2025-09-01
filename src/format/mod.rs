@@ -14,7 +14,7 @@ use crate::{Result, encoding::*};
 
 pub use reader::*;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct HpakHeader {
     /// Metadata compression method.
     pub(crate) meta_compression_method: CompressionMethod,
@@ -53,7 +53,7 @@ impl Decode for HpakHeader {
 }
 
 /// An entry in the HPAK archive.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct HpakFileEntry {
     /// Hash of the entry's path.
     pub(crate) hash: u64,
@@ -95,7 +95,7 @@ impl Decode for HpakFileEntry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct HpakDirectoryEntry {
     /// Hash of the entry's path.
     pub(crate) hash: u64,
@@ -124,7 +124,7 @@ impl Decode for HpakDirectoryEntry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct HpakEntries {
     /// Directory entries in the archive.
     pub(crate) directories: HashTable<HpakDirectoryEntry>,
@@ -174,25 +174,22 @@ impl Decode for HpakEntries {
 }
 
 #[repr(u8)]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub enum CompressionMethod {
     #[default]
     None = 0,
-    /// Deflate(level), level is a number between 0 and 9
-    #[cfg(feature = "deflate")]
-    Deflate = 1,
+    Zlib = 1,
 }
 
 impl CompressionMethod {
     pub fn compress<R: Read, W: Write>(&self, mut reader: R, mut writer: W) -> Result<u64> {
         match self {
             CompressionMethod::None => Ok(std::io::copy(&mut reader, &mut writer)?),
-            #[cfg(feature = "deflate")]
-            CompressionMethod::Deflate => {
-                use zopfli::{Format::Deflate, Options};
+            CompressionMethod::Zlib => {
+                use zopfli::{Format::Zlib, Options};
 
                 let mut writer = write_counter::WriterCounter::new(writer);
-                zopfli::compress(Options::default(), Deflate, &mut reader, &mut writer)?;
+                zopfli::compress(Options::default(), Zlib, &mut reader, &mut writer)?;
 
                 Ok(writer.total_out())
             }
@@ -200,7 +197,6 @@ impl CompressionMethod {
     }
 }
 
-#[cfg(feature = "deflate")]
 mod write_counter {
     use std::io::Write;
 
@@ -238,8 +234,7 @@ impl From<CompressionMethod> for u8 {
     fn from(value: CompressionMethod) -> Self {
         match value {
             CompressionMethod::None => 0,
-            #[cfg(feature = "deflate")]
-            CompressionMethod::Deflate => 1,
+            CompressionMethod::Zlib => 1,
         }
     }
 }
@@ -256,8 +251,7 @@ impl Decode for CompressionMethod {
 
         match variant {
             0 => Ok(CompressionMethod::None),
-            #[cfg(feature = "deflate")]
-            1 => Ok(CompressionMethod::Deflate),
+            1 => Ok(CompressionMethod::Zlib),
             _ => Err(crate::Error::InvalidFileFormat),
         }
     }
@@ -285,7 +279,7 @@ mod tests {
 
     #[rstest]
     #[case(CompressionMethod::None, 0)]
-    #[cfg_attr(feature = "deflate", case(CompressionMethod::Deflate, 42))]
+    #[case(CompressionMethod::Zlib, 42)]
     fn it_encode_decode_header(#[case] method: CompressionMethod, #[case] offset: u64) {
         let header = HpakHeader {
             meta_compression_method: method,
@@ -302,10 +296,7 @@ mod tests {
 
     #[rstest]
     #[case(CompressionMethod::None, 16, 32, 64, 128)]
-    #[cfg_attr(
-        feature = "deflate",
-        case(CompressionMethod::Deflate, 32, 64, 128, 256)
-    )]
+    #[case(CompressionMethod::Zlib, 32, 64, 128, 256)]
     fn it_encode_decode_file_entry(
         #[case] method: CompressionMethod,
         #[case] hash: u64,
@@ -331,7 +322,7 @@ mod tests {
 
     #[rstest]
     #[case(CompressionMethod::None)]
-    #[cfg_attr(feature = "deflate", case(CompressionMethod::Deflate))]
+    #[case(CompressionMethod::Zlib)]
     fn it_encode_decode_compression_method(#[case] method: CompressionMethod) {
         assert_eq!(method, encode_decode(method));
     }
@@ -376,11 +367,11 @@ mod tests {
             },
         ],
     )]
-    #[cfg_attr(feature = "deflate", case(
+    #[case(
         vec![
             HpakFileEntry {
                 hash: 128,
-                compression_method: CompressionMethod::Deflate,
+                compression_method: CompressionMethod::Zlib,
                 meta_offset: 0,
                 meta_size: 0,
                 data_size: 0,
@@ -394,7 +385,7 @@ mod tests {
             },
             HpakFileEntry {
                 hash: 512,
-                compression_method: CompressionMethod::Deflate,
+                compression_method: CompressionMethod::Zlib,
                 meta_offset: 100,
                 meta_size: 200,
                 data_size: u64::MAX,
@@ -414,7 +405,7 @@ mod tests {
                 entries: vec![PathBuf::from("c"), PathBuf::from("d")],
             },
         ],
-    ))]
+    )]
     fn it_encode_decode_entries(
         #[case] files: Vec<HpakFileEntry>,
         #[case] directories: Vec<HpakDirectoryEntry>,
@@ -466,14 +457,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deflate")]
     fn it_compress_decompress() {
-        use flate2::read::DeflateDecoder;
+        use flate2::read::ZlibDecoder;
 
         let bytes = Vec::from(b"Hello World!");
         let mut encoded = Vec::new();
 
-        let size = CompressionMethod::Deflate
+        let size = CompressionMethod::Zlib
             .compress(std::io::Cursor::new(&bytes), &mut encoded)
             .unwrap();
 
@@ -481,7 +471,7 @@ mod tests {
 
         let mut decoded = Vec::new();
 
-        DeflateDecoder::new(std::io::Cursor::new(encoded))
+        ZlibDecoder::new(std::io::Cursor::new(encoded))
             .read_to_end(&mut decoded)
             .unwrap();
 

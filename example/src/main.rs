@@ -26,7 +26,7 @@ fn main() {
         .run();
 }
 
-#[derive(Resource, Default)]
+#[derive(Default, Resource)]
 struct State {
     a: Handle<TextAsset>,
     b: Handle<TextAsset>,

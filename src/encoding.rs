@@ -39,50 +39,7 @@ macro_rules! num_impl {
     };
 }
 
-num_impl!(i8: 1, i16: 2, i32: 4, i64: 8, i128: 16, u8: 1, u16: 2, u32: 4, u64: 8, u128: 16, f32: 4, f64: 8);
-
-macro_rules! tuple_impl {
-    ($($idx:tt $t:tt),*) => {
-        impl<$($t,)*> Encode for ($($t,)*)
-        where
-            $($t: Encode,)*
-        {
-            fn encode<W: Write>(&self, mut writer: W) -> Result<usize> {
-                let mut written = 0usize;
-
-                $(written += &self.$idx.encode(&mut writer)?;)*
-
-                Ok(written)
-            }
-        }
-
-        impl<$($t,)*> Decode for ($($t,)*)
-        where
-            $($t: Decode,)*
-        {
-            fn decode<R: Read>(mut reader: R) -> Result<Self> {
-                Ok(($($t::decode(&mut reader)?,)*))
-            }
-        }
-    };
-}
-
-tuple_impl!(0 T0);
-tuple_impl!(0 T0, 1 T1);
-tuple_impl!(0 T0, 1 T1, 2 T2);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6, 7 T7);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6, 7 T7, 8 T8);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6, 7 T7, 8 T8, 9 T9);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6, 7 T7, 8 T8, 9 T9, 10 T10);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6, 7 T7, 8 T8, 9 T9, 10 T10, 11 T11);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6, 7 T7, 8 T8, 9 T9, 10 T10, 11 T11, 12 T12);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6, 7 T7, 8 T8, 9 T9, 10 T10, 11 T11, 12 T12, 13 T13);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6, 7 T7, 8 T8, 9 T9, 10 T10, 11 T11, 12 T12, 13 T13, 14 T14);
-tuple_impl!(0 T0, 1 T1, 2 T2, 3 T3, 4 T4, 5 T5, 6 T6, 7 T7, 8 T8, 9 T9, 10 T10, 11 T11, 12 T12, 13 T13, 14 T14, 15 T15);
+num_impl!(u8: 1, u16: 2, u32: 4, u64: 8);
 
 impl Encode for String {
     fn encode<W: Write>(&self, writer: W) -> Result<usize> {
@@ -116,19 +73,29 @@ where
         reason = "we use MaybeUninit::assume_init to initialize an array which is later set to the decoded values"
     )]
     fn decode<R: Read>(mut reader: R) -> Result<Self> {
-        // FIXME(ldubos): wait for https://github.com/rust-lang/rust/issues/89379 or
-        // https://github.com/rust-lang/rust/issues/96097 for better implementation
+        {
+            let mut arr: [MaybeUninit<T>; N] = [MaybeUninit::uninit(); N];
 
-        // SAFETY: the array should always be initialized before being returned as we iterate over it
-        // to decode each entry.
-        let mut arr: [T; N] = unsafe { MaybeUninit::uninit().assume_init() };
+            for idx in 0..N {
+                match T::decode(&mut reader) {
+                    Ok(val) => arr[idx] = MaybeUninit::new(val),
+                    Err(err) => {
+                        // Drop any values that were already initialized
+                        for didx in 0..idx {
+                            // SAFETY: We have exclusive access to the memory location
+                            // and we are within current idx bounds
+                            unsafe {
+                                arr[didx].assume_init_drop();
+                            }
+                        }
 
-        arr.iter_mut().try_for_each::<_, Result<()>>(|entry| {
-            *entry = T::decode(&mut reader)?;
-            Ok(())
-        })?;
+                        return Err(err);
+                    }
+                }
+            }
 
-        Ok(arr)
+            Ok(unsafe { *(&arr as *const _ as *const _) })
+        }
     }
 }
 
@@ -216,27 +183,11 @@ mod tests {
     #[case(u32::MAX)]
     #[case(u64::MIN)]
     #[case(u64::MAX)]
-    #[case(u128::MIN)]
-    #[case(u128::MAX)]
-    #[case(i8::MIN)]
-    #[case(i8::MAX)]
-    #[case(i16::MIN)]
-    #[case(i16::MAX)]
-    #[case(i32::MIN)]
-    #[case(i32::MAX)]
-    #[case(i64::MIN)]
-    #[case(i64::MAX)]
-    #[case(i128::MIN)]
-    #[case(i128::MAX)]
-    #[case(f32::MIN)]
-    #[case(f32::MAX)]
-    #[case(f64::MIN)]
     #[case(String::from("Hello World!"))]
     #[case(PathBuf::from("Hello/World"))]
-    #[case((f64::MIN, 42u128, String::from("Hello World!"), f64::MAX, core::f32::consts::PI))]
     #[case(String::from("Hello World!"))]
-    #[case([u128::MIN, 0u128, u128::MAX])]
-    #[case(vec![u128::MIN, 0u128, u128::MAX, 42u128])]
+    #[case([u64::MIN, 0u64, u64::MAX])]
+    #[case(vec![u64::MIN, 0u64, u64::MAX, 42u64])]
     fn it_encode_decode<T: Encode + Decode + PartialEq + Debug>(#[case] value: T) {
         let mut bytes = Vec::new();
         let size = value.encode(&mut bytes).unwrap();

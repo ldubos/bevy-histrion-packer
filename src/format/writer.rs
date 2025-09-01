@@ -197,20 +197,20 @@ impl HpakWriter {
 }
 
 fn ron_minify(data: &str) -> Vec<u8> {
-    #[derive(Debug, PartialEq)]
+    #[derive(PartialEq, Debug)]
     enum State {
         None,
         String(StringState),
         Comment(CommentType),
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(PartialEq, Debug)]
     enum CommentType {
         Line,
         Block,
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(PartialEq, Debug)]
     enum StringState {
         None,
         Escape,
@@ -286,55 +286,52 @@ fn ron_minify(data: &str) -> Vec<u8> {
 
 /// A set of default compression methods for some extensions.
 ///
-/// | Extension        | Compression Method                                 |
-/// | ---------------- | -------------------------------------------------- |
-/// | **ogg**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **oga**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **spx**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **mp3**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **qoa**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **exr**          | [`None`](CompressionMethod::None)                  |
-/// | **png**          | [`None`](CompressionMethod::None)                  |
-/// | **jpg**          | [`None`](CompressionMethod::None)                  |
-/// | **jpeg**         | [`None`](CompressionMethod::None)                  |
-/// | **webp**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **ktx**          | [`None`](CompressionMethod::None)                  |
-/// | **ktx2**         | [`None`](CompressionMethod::None)                  |
-/// | **basis**        | [`None`](CompressionMethod::None)                  |
-/// | **qoi**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **dds**          | [`None`](CompressionMethod::None)                  |
-/// | **tga**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **bmp**          | [`None`](CompressionMethod::None)                  |
-/// | **gltf**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **glb**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **obj**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **fbx**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **meshlet_mesh** | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **glsl**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **hlsl**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **vert**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **frag**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **vs**           | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **fs**           | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **wgsl**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **spv**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **metal**        | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **txt**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **toml**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **ron**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **json**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **yaml**         | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **yml**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **xml**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **md**           | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **mp4**          | [`Deflate`](CompressionMethod::Deflate)            |
-/// | **webm**         | [`Deflate`](CompressionMethod::Deflate)            |
+/// | Extension        | Compression Method                 |
+/// | ---------------- | ---------------------------------- |
+/// | **ogg**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **oga**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **spx**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **mp3**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **qoa**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **exr**          | [`None`](CompressionMethod::None)  |
+/// | **png**          | [`None`](CompressionMethod::None)  |
+/// | **jpg**          | [`None`](CompressionMethod::None)  |
+/// | **jpeg**         | [`None`](CompressionMethod::None)  |
+/// | **webp**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **ktx**          | [`None`](CompressionMethod::None)  |
+/// | **ktx2**         | [`None`](CompressionMethod::None)  |
+/// | **basis**        | [`None`](CompressionMethod::None)  |
+/// | **qoi**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **dds**          | [`None`](CompressionMethod::None)  |
+/// | **tga**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **bmp**          | [`None`](CompressionMethod::None)  |
+/// | **gltf**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **glb**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **obj**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **fbx**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **meshlet_mesh** | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **glsl**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **hlsl**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **vert**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **frag**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **vs**           | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **fs**           | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **wgsl**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **spv**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **metal**        | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **txt**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **toml**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **ron**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **json**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **yaml**         | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **yml**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **xml**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **md**           | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **mp4**          | [`Zlib`](CompressionMethod::Zlib)  |
+/// | **webm**         | [`Zlib`](CompressionMethod::Zlib)  |
 pub fn default_extensions_compression_method()
 -> Option<std::collections::HashMap<String, CompressionMethod>> {
-    #[cfg(feature = "deflate")]
-    const DEFAULT_COMPRESSION_METHOD: CompressionMethod = CompressionMethod::Deflate;
-    #[cfg(not(feature = "deflate"))]
-    const DEFAULT_COMPRESSION_METHOD: CompressionMethod = CompressionMethod::None;
+    const DEFAULT_COMPRESSION_METHOD: CompressionMethod = CompressionMethod::Zlib;
 
     std::collections::HashMap::from([
         // audio

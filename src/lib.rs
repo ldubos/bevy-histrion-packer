@@ -24,7 +24,7 @@ pub const VERSION: u32 = 6;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("cannot add hpak entry after finalize")]
     CannotAddEntryAfterFinalize,
@@ -60,7 +60,7 @@ impl From<Error> for AssetReaderError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum HistrionPackerMode {
     /// Add a new [`AssetSource`] available through the `<source_id>://` source.
     Autoload(&'static str),

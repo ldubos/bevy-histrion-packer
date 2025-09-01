@@ -63,7 +63,6 @@ Offset  Size    Description
 
 | feature | description                                                                              |
 | ------- | ---------------------------------------------------------------------------------------- |
-| deflate | Enables the deflate compression algorithm.                                               |
 | writer  | Enables the ability to generate a HPAK file with [`HpakWriter`](./src/format/writer.rs). |
 
 ## Bevy Compatibility

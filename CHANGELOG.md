@@ -5,7 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - 2025-24-04
+## [Unreleased]
+
+### Changed
+
+- Bumped `flate2` to `1.1`
+- Minor docs/typo fixes
+- Now uses Zopfli + Zstd instead of Zopfli + Deflate
+
+### Fixed
+
+- RON minifier now preserves escape sequences (e.g. `\t`) inside strings instead of unescaping them
+
+### Removed
+
+- Removed `deflate` feature, compression is now 100% part of the create
+- Removed lot of useless internal `Encode`/`Decode` impls for unused types
+
+## [0.6.0] - 2025-04-24
 
 ## Changed
 
