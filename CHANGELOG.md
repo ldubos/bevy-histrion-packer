@@ -9,18 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Bumped `flate2` to `1.1`
-- Minor docs/typo fixes
-- Now uses Zopfli + Zstd instead of Zopfli + Deflate
+- Bumped `flate2` to `1.1` (enabled `zlib-rs` feature)
+- Reworked `HpakWriter` into a builder-style API
+- Use a memory-mapped slice reader for archive entries
+- Updated default per-extension compression mapping and added `set_default_extension_compression_methods` to populate sensible defaults for common file extensions
+- Writer defaults: metadata minification enabled and entry alignment defaults to 4096 bytes, entries are deterministically sorted when packing directories
+
+### Added
+
+- `HpakWriter::add_paths_from_dir`
 
 ### Fixed
 
-- RON minifier now preserves escape sequences (e.g. `\t`) inside strings instead of unescaping them
+- RON minifier now preserves escape sequences (e.g. `\\t`) inside strings instead of unescaping them
+- Properly handle partial initialization in array `Decode` impl to avoid unsafe indexing and clippy warnings
 
 ### Removed
 
-- Removed `deflate` feature, compression is now 100% part of the create
-- Removed lot of useless internal `Encode`/`Decode` impls for unused types
+- Removed `pack_assets_folder` convenience function in favor of the `HpakWriter` API
+- Removed the `deflate` feature flag and many unused `Encode`/`Decode` impls
 
 ## [0.6.0] - 2025-04-24
 

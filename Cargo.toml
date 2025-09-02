@@ -25,7 +25,7 @@ default = ["writer"]
 writer = []
 
 [dependencies]
-flate2 = { version = "1.1" }
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 futures-io = "0.3"
 futures-lite = "2.6"
 memmap2 = "0.9"

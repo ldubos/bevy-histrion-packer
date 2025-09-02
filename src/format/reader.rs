@@ -3,7 +3,6 @@ use crate::{Error, Result, encoding::*};
 use bevy::asset::io::{AssetReader, AssetReaderError, AsyncSeekForward, PathStream, Reader};
 use futures_io::AsyncRead;
 use memmap2::Mmap;
-use std::io::Cursor;
 use std::mem::ManuallyDrop;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -165,14 +164,6 @@ pub struct HpakEntryReader {
     state: ReaderState,
 }
 
-enum ReaderState {
-    Uncompressed(Cursor<Vec<u8>>),
-    Compressed {
-        cursor: u64,
-        decoder: Arc<parking_lot::Mutex<dyn Read + Send + Sync + 'static>>,
-    },
-}
-
 impl HpakEntryReader {
     pub fn new(
         source: Arc<Mmap>,
@@ -180,12 +171,13 @@ impl HpakEntryReader {
         size: u64,
         compression_method: CompressionMethod,
     ) -> Self {
-        let slice = Cursor::new(source[offset as usize..(offset + size) as usize].to_owned());
+        let slice = MmapSliceReader::new(source.clone(), offset as usize, size as usize);
 
         let state = match compression_method {
             CompressionMethod::None => ReaderState::Uncompressed(slice),
             CompressionMethod::Zlib => ReaderState::Compressed {
                 cursor: 0,
+                // Strange rust-analyzer error, just ignore it...
                 decoder: Arc::new(parking_lot::Mutex::new(Box::new(
                     flate2::read::ZlibDecoder::new_with_buf(slice, vec![0u8; 4 * 1024]),
                 )
@@ -194,6 +186,64 @@ impl HpakEntryReader {
         };
 
         Self { state }
+    }
+}
+
+enum ReaderState {
+    Uncompressed(MmapSliceReader),
+    Compressed {
+        cursor: u64,
+        decoder: Arc<parking_lot::Mutex<dyn Read + Send + Sync + 'static>>,
+    },
+}
+
+struct MmapSliceReader {
+    source: Arc<Mmap>,
+    offset: usize,
+    len: usize,
+    pos: usize,
+}
+
+impl MmapSliceReader {
+    fn new(source: Arc<Mmap>, offset: usize, len: usize) -> Self {
+        Self {
+            source,
+            offset,
+            len,
+            pos: 0,
+        }
+    }
+
+    fn seek_forward(&mut self, offset: u64) -> std::io::Result<u64> {
+        let new_pos = self.pos as u64 + offset;
+
+        if new_pos > self.len as u64 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek out of bounds",
+            ));
+        }
+
+        self.pos = new_pos as usize;
+        Ok(self.pos as u64)
+    }
+}
+
+impl Read for MmapSliceReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.pos >= self.len {
+            return Ok(0);
+        }
+
+        let remaining = self.len - self.pos;
+        let to_read = remaining.min(buf.len());
+        let start = self.offset + self.pos;
+        let end = start + to_read;
+
+        buf[..to_read].copy_from_slice(&self.source[start..end]);
+        self.pos += to_read;
+
+        Ok(to_read)
     }
 }
 
@@ -232,13 +282,11 @@ impl AsyncSeekForward for HpakEntryReader {
         offset: u64,
     ) -> Poll<futures_io::Result<u64>> {
         match &mut self.state {
-            ReaderState::Uncompressed(cursor) => {
-                match cursor.seek(SeekFrom::Current(offset as i64)) {
-                    Ok(new_pos) => Poll::Ready(Ok(new_pos)),
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Poll::Pending,
-                    Err(e) => Poll::Ready(Err(e)),
-                }
-            }
+            ReaderState::Uncompressed(cursor) => match cursor.seek_forward(offset) {
+                Ok(new_pos) => Poll::Ready(Ok(new_pos)),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Poll::Pending,
+                Err(e) => Poll::Ready(Err(e)),
+            },
             ReaderState::Compressed { cursor, decoder } => {
                 let mut offset = offset;
                 let mut decoder = decoder.lock();

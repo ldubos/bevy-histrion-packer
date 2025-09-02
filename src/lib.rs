@@ -26,8 +26,8 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("cannot add hpak entry after finalize")]
-    CannotAddEntryAfterFinalize,
+    #[error("the archive has already been finalized")]
+    AlreadyFinalized,
     #[error("duplicated hpak entry: {0}")]
     DuplicateEntry(PathBuf),
     #[error("hpak entry not found: {0}")]
@@ -53,9 +53,7 @@ impl From<Error> for AssetReaderError {
         match err {
             EntryNotFound(path) => AssetReaderError::NotFound(path),
             Io(err) => AssetReaderError::Io(err.into()),
-            err => AssetReaderError::Io(
-                std::io::Error::new(std::io::ErrorKind::Other, format!("{}", err)).into(),
-            ),
+            err => AssetReaderError::Io(std::io::Error::other(format!("{}", err)).into()),
         }
     }
 }

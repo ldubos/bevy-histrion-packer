@@ -5,111 +5,261 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use bevy::platform::collections::HashMap;
+
 use super::*;
 use crate::{Error, Result, encoding::*};
 
+/// Writer for creating HPAK archives.
+///
+/// This type implements a small builder-style API for configuring how files
+/// are added to the archive and how metadata and data are compressed.
 pub struct HpakWriter {
     output: File,
-    meta_compression_method: CompressionMethod,
+    /// Compression method to use for metadata blocks.
+    meta_compression: CompressionMethod,
+    /// Default compression method to use for files' data when none is provided.
+    default_data_compression: CompressionMethod,
+    /// Per-extension default compression methods.
+    default_compression_by_extension: HashMap<String, CompressionMethod>,
+    /// Paths queued to be added to the archive.
+    queued_paths: BTreeMap<PathBuf, (PathBuf, Option<CompressionMethod>)>,
     entries: BTreeMap<PathBuf, HpakFileEntry>,
-    with_alignment: Option<u64>,
+    alignment: Option<u64>,
+    /// Whether the metadata should be minified before being written.
+    minify_metadata: bool,
     finalized: bool,
 }
 
 impl HpakWriter {
     /// Create a new HPAK writer.
-    /// The `meta_compression_method` is used to compress the metadata of the assets.
-    /// If `with_padding` is true, padding will be added to align entries to 4096 bytes.
-    pub fn new(
-        path: impl AsRef<Path>,
-        meta_compression_method: CompressionMethod,
-        with_alignment: Option<u64>,
-    ) -> Result<Self> {
-        if let Some(alignment) = with_alignment {
-            if alignment & (alignment - 1) != 0 {
-                return Err(Error::InvalidAlignment(alignment));
-            }
-        }
-
-        let mut output = OpenOptions::new()
+    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+        let output = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .open(path)?;
 
-        // write dummy header, overwritten in finalize()
-        let header = HpakHeader {
-            meta_compression_method,
-            entries_offset: 0,
-        };
-        header.encode(&mut output)?;
-
         Ok(Self {
             output,
-            meta_compression_method,
+            meta_compression: CompressionMethod::None,
+            default_data_compression: CompressionMethod::None,
+            default_compression_by_extension: HashMap::new(),
+            queued_paths: BTreeMap::new(),
             entries: BTreeMap::new(),
-            with_alignment,
+            alignment: Some(4096),
             finalized: false,
+            minify_metadata: true,
         })
     }
 
-    /// Add an entry to the archive.
-    pub fn add_entry(
+    /// Set the compression method used for metadata blocks.
+    ///
+    /// Defaults to [`CompressionMethod::None`].
+    pub fn meta_compression(&mut self, method: CompressionMethod) -> &mut Self {
+        self.meta_compression = method;
+        self
+    }
+
+    /// Set the default compression method for file data when no per-file
+    /// override is provided.
+    ///
+    /// Defaults to [`CompressionMethod::None`].
+    pub fn default_data_compression(&mut self, method: CompressionMethod) -> &mut Self {
+        self.default_data_compression = method;
+        self
+    }
+
+    /// Control whether metadata is minified before being written.
+    ///
+    /// `true` by default.
+    pub fn minify_metadata(&mut self, minify: bool) -> &mut Self {
+        self.minify_metadata = minify;
+        self
+    }
+
+    /// Set the alignment for the entries.
+    /// Must be a power of two.
+    ///
+    /// `4096` by default.
+    pub fn with_alignment(&mut self, alignment: u64) -> &mut Self {
+        if alignment == 0 {
+            self.alignment = None;
+        } else {
+            self.alignment = Some(alignment);
+        }
+
+        self
+    }
+
+    /// Set the default compression method for a specific file extension.
+    ///
+    /// If the extension already has a default, it will be overwritten.
+    pub fn default_compression_for_extension(
         &mut self,
-        path: impl AsRef<Path>,
-        mut meta: impl Read,
-        data: impl Read,
+        extension: &str,
+        method: CompressionMethod,
+    ) -> &mut Self {
+        self.default_compression_by_extension
+            .insert(extension.to_string(), method);
+        self
+    }
+
+    /// Queue a path to be added to the archive using the default compression
+    /// strategy.
+    pub fn add_path(
+        &mut self,
+        disk_path: impl AsRef<Path>,
+        archive_path: impl AsRef<Path>,
+    ) -> &mut Self {
+        let key = disk_path.as_ref().to_path_buf();
+        self.queued_paths
+            .insert(key, (archive_path.as_ref().to_path_buf(), None));
+        self
+    }
+
+    /// Queue a path with an explicit compression method for its data.
+    pub fn add_path_with(
+        &mut self,
+        disk_path: impl AsRef<Path>,
+        archive_path: impl AsRef<Path>,
         compression_method: CompressionMethod,
-    ) -> Result<()> {
+    ) -> &mut Self {
+        let key = disk_path.as_ref().to_path_buf();
+        self.queued_paths.insert(
+            key,
+            (
+                archive_path.as_ref().to_path_buf(),
+                Some(compression_method),
+            ),
+        );
+        self
+    }
+
+    /// Recursively queue all files found under `dir` to be added to the archive.
+    pub fn add_paths_from_dir(&mut self, dir: impl AsRef<Path>) -> Result<&mut Self> {
+        let dir = dir.as_ref();
+
+        if !dir.exists() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("dir directory does not exist: {dir:?}"),
+            )));
+        }
+
+        if !dir.is_dir() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("dir is not a directory: {dir:?}"),
+            )));
+        }
+
+        for entry in walk_dir(dir) {
+            if entry.extension().and_then(|e| e.to_str()).unwrap_or("") == "meta" {
+                continue;
+            }
+
+            let archive_path = entry.clone();
+            let archive_path = match archive_path.strip_prefix(dir) {
+                Ok(path) => path,
+                Err(e) => {
+                    return Err(Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        format!("failed to strip prefix: {e}"),
+                    )));
+                }
+            };
+
+            self.add_path(entry, archive_path);
+        }
+
+        Ok(self)
+    }
+
+    /// Build the archive.
+    pub fn build(&mut self) -> Result<()> {
         if self.finalized {
-            return Err(Error::CannotAddEntryAfterFinalize);
+            return Err(Error::AlreadyFinalized);
         }
 
-        let path = path.as_ref();
-
-        if self.entries.contains_key(path) {
-            return Err(Error::DuplicateEntry(path.to_path_buf()));
-        }
-
-        self.pad_to_alignment()?;
-
-        let mut meta_str = String::new();
-        meta.read_to_string(&mut meta_str)?;
-
-        let meta_offset = self.offset()?;
-
-        let meta_size = self.meta_compression_method.compress(
-            std::io::Cursor::new(ron_minify(meta_str.as_str())),
-            &mut self.output,
-        )?;
-        let data_size = compression_method.compress(data, &mut self.output)?;
-
-        let entry = HpakFileEntry {
-            hash: hash_path(path),
-            compression_method,
-            meta_offset,
-            meta_size,
-            data_size,
+        // Write dummy header, overwritten in finalize()
+        let header = HpakHeader {
+            meta_compression_method: CompressionMethod::None,
+            entries_offset: 0,
         };
+        header.encode(&mut self.output)?;
 
-        self.entries.insert(path.to_path_buf(), entry);
+        for (disk_path, (archive_path, compression_method)) in self.queued_paths.iter().by_ref() {
+            let ext = disk_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let meta_path = meta_path_for(disk_path);
 
-        Ok(())
+            println!("Adding {:?} (meta: {:?})", disk_path, meta_path);
+            let meta = File::open(&meta_path)?;
+            let data = File::open(disk_path)?;
+
+            let compression_method = compression_method.unwrap_or_else(|| {
+                self.default_compression_by_extension
+                    .get(ext)
+                    .copied()
+                    .unwrap_or(CompressionMethod::default())
+            });
+
+            let archive_path = archive_path.as_path();
+
+            if self.entries.contains_key(archive_path) {
+                return Err(Error::DuplicateEntry(archive_path.to_path_buf()));
+            }
+
+            if let Some(alignment) = self.alignment {
+                let offset = self.output.stream_position()?;
+
+                let aligned = (offset + (alignment - 1)) & !(alignment - 1);
+                let padding = aligned - offset;
+
+                if padding > 0 {
+                    let padding_bytes = vec![0u8; padding as usize];
+                    self.output.write_all(&padding_bytes)?;
+                }
+
+                self.output.flush()?;
+            };
+
+            let meta_offset = self.output.stream_position()?;
+            let meta_size = self.meta_compression.compress(
+                if self.minify_metadata {
+                    Box::new(RonMinifier::new(meta)) as Box<dyn Read>
+                } else {
+                    Box::new(meta) as Box<dyn Read>
+                },
+                &mut self.output,
+            )?;
+            let data_size = compression_method.compress(data, &mut self.output)?;
+
+            let entry = HpakFileEntry {
+                hash: hash_path(archive_path),
+                compression_method,
+                meta_offset,
+                meta_size,
+                data_size,
+            };
+
+            self.entries.insert(archive_path.to_path_buf(), entry);
+        }
+
+        self.finalize()
     }
 
     /// Write the entries table and the final header then flush the writer.
-    pub fn finalize(&mut self) -> Result<()> {
+    fn finalize(&mut self) -> Result<()> {
         if self.finalized {
             return Ok(());
         }
 
         self.finalized = true;
 
-        self.pad_to_alignment()?;
-
         let header = HpakHeader {
-            meta_compression_method: self.meta_compression_method,
-            entries_offset: self.offset()?,
+            meta_compression_method: self.meta_compression,
+            entries_offset: self.output.stream_position()?,
         };
 
         let mut entries = HpakEntries {
@@ -167,307 +317,302 @@ impl HpakWriter {
 
         Ok(())
     }
+}
 
-    #[inline]
-    fn offset(&mut self) -> Result<u64> {
-        Ok(self.output.stream_position()?)
+#[derive(PartialEq, Debug)]
+enum RonState {
+    None,
+    String(RonStringState),
+    Comment(RonCommentType),
+}
+
+#[derive(PartialEq, Debug)]
+enum RonCommentType {
+    Line,
+    Block,
+}
+
+#[derive(PartialEq, Debug)]
+enum RonStringState {
+    None,
+    Escape,
+}
+
+pub struct RonMinifier<R: Read> {
+    inner: R,
+    input_chars: Vec<char>,
+    input_pos: usize,
+    eof: bool,
+    lookahead: Option<char>,
+    state: RonState,
+    prev: Option<char>,
+    prev_input: Option<char>,
+    out_buf: Vec<u8>,
+}
+
+impl<R: Read> RonMinifier<R> {
+    pub fn new(inner: R) -> Self {
+        Self {
+            inner,
+            input_chars: Vec::new(),
+            input_pos: 0,
+            eof: false,
+            lookahead: None,
+            state: RonState::None,
+            prev: None,
+            prev_input: None,
+            out_buf: Vec::new(),
+        }
     }
 
-    fn pad_to_alignment(&mut self) -> Result<()> {
-        let alignment = if let Some(alignment) = self.with_alignment {
-            alignment
-        } else {
-            return Ok(());
-        };
-
-        let offset = self.offset()?;
-
-        let aligned = (offset + (alignment - 1)) & !(alignment - 1);
-        let padding = aligned - offset;
-
-        if padding > 0 {
-            let padding_bytes = vec![0u8; padding as usize];
-            self.output.write_all(&padding_bytes)?;
+    fn refill_input_chars(&mut self) -> std::io::Result<bool> {
+        if self.input_pos < self.input_chars.len() {
+            return Ok(true);
         }
 
-        self.output.flush()?;
+        if self.eof {
+            return Ok(false);
+        }
 
-        Ok(())
+        let mut buf = [0u8; 4096];
+        let n = self.inner.read(&mut buf)?;
+        if n == 0 {
+            self.eof = true;
+            return Ok(false);
+        }
+
+        let s = String::from_utf8_lossy(&buf[..n]).to_string();
+        self.input_chars = s.chars().collect();
+        self.input_pos = 0;
+
+        Ok(!self.input_chars.is_empty())
+    }
+
+    fn peek_char(&mut self) -> std::io::Result<Option<char>> {
+        if self.lookahead.is_some() {
+            return Ok(self.lookahead);
+        }
+
+        if self.input_pos < self.input_chars.len() {
+            let c = self.input_chars[self.input_pos];
+            self.lookahead = Some(c);
+            return Ok(self.lookahead);
+        }
+
+        // try to refill
+        if self.refill_input_chars()? {
+            let c = self.input_chars[self.input_pos];
+            self.lookahead = Some(c);
+            return Ok(self.lookahead);
+        }
+
+        Ok(None)
+    }
+
+    fn next_char_consume(&mut self) -> std::io::Result<Option<char>> {
+        if let Some(c) = self.lookahead.take() {
+            self.input_pos += 1;
+            self.prev_input = Some(c);
+            return Ok(Some(c));
+        }
+
+        if self.input_pos < self.input_chars.len() {
+            let c = self.input_chars[self.input_pos];
+            self.input_pos += 1;
+            self.prev_input = Some(c);
+            return Ok(Some(c));
+        }
+
+        if self.refill_input_chars()? {
+            let c = self.input_chars[self.input_pos];
+            self.input_pos += 1;
+            self.prev_input = Some(c);
+            return Ok(Some(c));
+        }
+
+        Ok(None)
+    }
+
+    fn push_char(&mut self, c: char) {
+        self.prev = Some(c);
+        let mut buf = [0u8; 4];
+        let s = c.encode_utf8(&mut buf);
+        self.out_buf.extend_from_slice(s.as_bytes());
     }
 }
 
-fn ron_minify(data: &str) -> Vec<u8> {
-    #[derive(PartialEq, Debug)]
-    enum State {
-        None,
-        String(StringState),
-        Comment(CommentType),
-    }
-
-    #[derive(PartialEq, Debug)]
-    enum CommentType {
-        Line,
-        Block,
-    }
-
-    #[derive(PartialEq, Debug)]
-    enum StringState {
-        None,
-        Escape,
-    }
-
-    let mut output = Vec::with_capacity(data.len());
-    let mut data = data.chars().peekable();
-    let mut state: State = State::None;
-    let mut prev: Option<char> = None;
-
-    macro_rules! push {
-        ($c:expr) => {
-            prev.replace($c);
-            output.push($c);
-        };
-    }
-
-    while let Some(&c) = data.peek() {
-        match state {
-            State::String(StringState::None) => match c {
-                '\\' => {
-                    state = State::String(StringState::Escape);
-                    push!(c);
-                }
-                '"' => {
-                    state = State::None;
-                    push!(c);
-                }
-                _ => {
-                    push!(c);
-                }
-            },
-            State::String(StringState::Escape) => {
-                push!(c);
-                state = State::String(StringState::None);
+impl<R: Read> Read for RonMinifier<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // Fill out_buf until we have something to return or EOF reached
+        while self.out_buf.is_empty() {
+            let peek = self.peek_char()?;
+            if peek.is_none() {
+                // no more input and nothing buffered
+                return Ok(0);
             }
-            State::Comment(CommentType::Line) if c == '\n' => {
-                state = State::None;
-            }
-            State::Comment(CommentType::Block) if c == '/' && prev == Some('*') => {
-                state = State::None;
-            }
-            State::None => match c {
-                '"' => {
-                    state = State::String(StringState::None);
-                    push!(c);
+
+            let c = peek.unwrap();
+
+            match self.state {
+                RonState::String(RonStringState::None) => match c {
+                    '\\' => {
+                        self.next_char_consume()?;
+                        self.state = RonState::String(RonStringState::Escape);
+                        self.push_char('\\');
+                    }
+                    '"' => {
+                        self.next_char_consume()?;
+                        self.state = RonState::None;
+                        self.push_char('"');
+                    }
+                    _ => {
+                        self.next_char_consume()?;
+                        self.push_char(c);
+                    }
+                },
+                RonState::String(RonStringState::Escape) => {
+                    if let Some(ch) = self.next_char_consume()? {
+                        self.push_char(ch);
+                    }
+                    self.state = RonState::String(RonStringState::None);
                 }
-                '/' if prev == Some('/') => {
-                    state = State::Comment(CommentType::Line);
-                }
-                '*' if prev == Some('/') => {
-                    state = State::Comment(CommentType::Block);
-                }
-                '/' => {
-                    prev.replace(c);
-                }
-                _ => {
-                    if !c.is_ascii_whitespace() {
-                        push!(c);
+                RonState::Comment(RonCommentType::Line) => {
+                    if c == '\n' {
+                        self.next_char_consume()?;
+                        self.state = RonState::None;
+                    } else {
+                        self.next_char_consume()?;
                     }
                 }
-            },
-            _ => {
-                prev.replace(c);
+                RonState::Comment(RonCommentType::Block) => {
+                    if c == '/' && self.prev_input == Some('*') {
+                        self.next_char_consume()?;
+                        self.state = RonState::None;
+                    } else {
+                        self.next_char_consume()?;
+                    }
+                }
+                RonState::None => match c {
+                    '"' => {
+                        self.next_char_consume()?;
+                        self.state = RonState::String(RonStringState::None);
+                        self.push_char('"');
+                    }
+                    '/' if self.prev_input == Some('/') => {
+                        self.next_char_consume()?;
+                        self.state = RonState::Comment(RonCommentType::Line);
+                    }
+                    '*' if self.prev_input == Some('/') => {
+                        self.next_char_consume()?;
+                        self.state = RonState::Comment(RonCommentType::Block);
+                    }
+                    '/' => {
+                        self.next_char_consume()?;
+                        self.prev_input = Some('/');
+                    }
+                    _ => {
+                        self.next_char_consume()?;
+                        if !c.is_ascii_whitespace() {
+                            self.push_char(c);
+                        } else {
+                            let next = if self.input_pos < self.input_chars.len() {
+                                Some(self.input_chars[self.input_pos])
+                            } else {
+                                None
+                            };
+
+                            let emit = match (self.prev, next) {
+                                (Some(p), Some(n)) => {
+                                    (p.is_alphanumeric() && n.is_alphanumeric())
+                                        || p == '\\'
+                                        || n == '\\'
+                                }
+                                _ => false,
+                            };
+
+                            if emit {
+                                self.push_char(c);
+                            }
+                        }
+                    }
+                },
             }
         }
 
-        data.next();
-    }
+        // drain out_buf into caller buffer
+        let to_copy = std::cmp::min(buf.len(), self.out_buf.len());
+        buf[..to_copy].copy_from_slice(&self.out_buf[..to_copy]);
+        // remove drained bytes
+        self.out_buf.drain(..to_copy);
 
-    output.into_iter().collect::<String>().into_bytes()
+        Ok(to_copy)
+    }
 }
 
-/// A set of default compression methods for some extensions.
-///
-/// | Extension        | Compression Method                 |
-/// | ---------------- | ---------------------------------- |
-/// | **ogg**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **oga**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **spx**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **mp3**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **qoa**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **exr**          | [`None`](CompressionMethod::None)  |
-/// | **png**          | [`None`](CompressionMethod::None)  |
-/// | **jpg**          | [`None`](CompressionMethod::None)  |
-/// | **jpeg**         | [`None`](CompressionMethod::None)  |
-/// | **webp**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **ktx**          | [`None`](CompressionMethod::None)  |
-/// | **ktx2**         | [`None`](CompressionMethod::None)  |
-/// | **basis**        | [`None`](CompressionMethod::None)  |
-/// | **qoi**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **dds**          | [`None`](CompressionMethod::None)  |
-/// | **tga**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **bmp**          | [`None`](CompressionMethod::None)  |
-/// | **gltf**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **glb**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **obj**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **fbx**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **meshlet_mesh** | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **glsl**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **hlsl**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **vert**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **frag**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **vs**           | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **fs**           | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **wgsl**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **spv**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **metal**        | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **txt**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **toml**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **ron**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **json**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **yaml**         | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **yml**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **xml**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **md**           | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **mp4**          | [`Zlib`](CompressionMethod::Zlib)  |
-/// | **webm**         | [`Zlib`](CompressionMethod::Zlib)  |
-pub fn default_extensions_compression_method()
--> Option<std::collections::HashMap<String, CompressionMethod>> {
-    const DEFAULT_COMPRESSION_METHOD: CompressionMethod = CompressionMethod::Zlib;
+/// Populate `writer` with a set of sensible defaults for common file
+/// extensions.
+pub fn set_default_extension_compression_methods(writer: &mut HpakWriter) {
+    use CompressionMethod::*;
 
-    std::collections::HashMap::from([
+    const EXTENSIONS: [(&str, CompressionMethod); 41] = [
         // audio
-        ("ogg".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("oga".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("spx".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("mp3".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("qoa".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("ogg", None),
+        ("oga", None),
+        ("spx", Zlib),
+        ("mp3", None),
+        ("qoa", None),
         // image
-        ("exr".to_string(), CompressionMethod::None),
-        ("png".to_string(), CompressionMethod::None),
-        ("jpg".to_string(), CompressionMethod::None),
-        ("jpeg".to_string(), CompressionMethod::None),
-        ("webp".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("ktx".to_string(), CompressionMethod::None),
-        ("ktx2".to_string(), CompressionMethod::None),
-        ("basis".to_string(), CompressionMethod::None),
-        ("qoi".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("dds".to_string(), CompressionMethod::None),
-        ("tga".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("bmp".to_string(), CompressionMethod::None),
+        ("exr", None),
+        ("png", None),
+        ("jpg", None),
+        ("jpeg", None),
+        ("webp", None),
+        ("ktx", None),
+        ("ktx2", None),
+        ("basis", None),
+        ("qoi", None),
+        ("dds", None),
+        ("tga", Zlib),
+        ("bmp", Zlib),
         // 3d models
-        ("gltf".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("glb".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("obj".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("fbx".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("meshlet_mesh".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("gltf", Zlib),
+        ("glb", Zlib),
+        ("obj", Zlib),
+        ("fbx", Zlib),
+        ("meshlet_mesh", Zlib),
         // shaders
-        ("glsl".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("hlsl".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("vert".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("frag".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("vs".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("fs".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("wgsl".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("spv".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("metal".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("glsl", Zlib),
+        ("hlsl", Zlib),
+        ("vert", Zlib),
+        ("frag", Zlib),
+        ("vs", Zlib),
+        ("fs", Zlib),
+        ("wgsl", Zlib),
+        ("spv", Zlib),
+        ("metal", Zlib),
         // text
-        ("txt".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("toml".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("ron".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("json".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("yaml".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("yml".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("xml".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("md".to_string(), DEFAULT_COMPRESSION_METHOD),
+        ("txt", Zlib),
+        ("toml", Zlib),
+        ("ron", Zlib),
+        ("json", Zlib),
+        ("yaml", Zlib),
+        ("yml", Zlib),
+        ("xml", Zlib),
+        ("md", Zlib),
         // video
-        ("mp4".to_string(), DEFAULT_COMPRESSION_METHOD),
-        ("webm".to_string(), DEFAULT_COMPRESSION_METHOD),
-    ])
-    .into()
-}
+        ("mp4", Zlib),
+        ("webm", None),
+    ];
 
-/// Pack all assets presents in the `assets_dir` into a single `output_file` HPAK file.
-///
-/// The `meta_compression_method` is used to compress the metadata of the assets.
-/// The `default_compression_method` is used to compress the data of the assets if no `method`
-/// is specified in the `extensions_compression_method` map for the asset's extension.
-///
-/// If `with_alignment` is Some(N), padding will be added to align entries to N bytes.
-pub fn pack_assets_folder(
-    assets_dir: impl AsRef<Path>,
-    output_file: impl AsRef<Path>,
-    meta_compression_method: CompressionMethod,
-    default_compression_method: CompressionMethod,
-    extensions_compression_method: Option<std::collections::HashMap<String, CompressionMethod>>,
-    ignore_missing_meta: bool,
-    with_alignment: Option<u64>,
-) -> Result<()> {
-    let assets_dir = assets_dir.as_ref();
-    let extensions_compression_method = extensions_compression_method.as_ref();
-    let mut writer = HpakWriter::new(output_file, meta_compression_method, with_alignment)?;
-
-    if !assets_dir.exists() {
-        return Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("assets_dir directory does not exist: {assets_dir:?}"),
-        )));
+    for (ext, method) in EXTENSIONS {
+        writer
+            .default_compression_by_extension
+            .insert(ext.to_string(), method);
     }
-
-    if !assets_dir.is_dir() {
-        return Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("assets_dir is not a directory: {assets_dir:?}"),
-        )));
-    }
-
-    for path in walkdir(assets_dir) {
-        let extension = path.extension().unwrap_or_default().to_os_string();
-
-        if extension.eq("meta") {
-            continue;
-        }
-
-        let entry = match path.strip_prefix(assets_dir) {
-            Ok(path) => path.to_path_buf(),
-            Err(e) => {
-                return Err(Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("invalid path: {e}"),
-                )));
-            }
-        };
-
-        let meta_path = get_meta_path(&path);
-
-        let mut meta_file: Box<dyn std::io::Read> = if meta_path.exists() {
-            Box::new(fs::File::open(&meta_path)?)
-        } else if ignore_missing_meta {
-            Box::new(std::io::Cursor::new(vec![]))
-        } else {
-            continue;
-        };
-
-        let mut data_file = fs::File::open(&path)?;
-
-        let extension = path
-            .extension()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-
-        let compression_method = extensions_compression_method
-            .and_then(|extensions| extensions.get(&extension).copied())
-            .unwrap_or(default_compression_method);
-
-        writer.add_entry(&entry, &mut meta_file, &mut data_file, compression_method)?;
-    }
-
-    writer.finalize()?;
-
-    Ok(())
 }
 
 #[inline]
-fn get_meta_path(path: impl AsRef<Path>) -> PathBuf {
+fn meta_path_for(path: impl AsRef<Path>) -> PathBuf {
     let mut meta_path = path.as_ref().to_path_buf();
     let mut extension = meta_path.extension().unwrap_or_default().to_os_string();
     extension.push(".meta");
@@ -475,29 +620,33 @@ fn get_meta_path(path: impl AsRef<Path>) -> PathBuf {
     meta_path
 }
 
-fn walkdir<'a>(root: impl AsRef<Path>) -> Box<dyn Iterator<Item = PathBuf> + 'a> {
-    Box::new(
-        fs::read_dir(root.as_ref())
-            .unwrap()
-            .filter_map(|entry| match entry {
-                Ok(entry) => {
-                    let path = entry.path();
+fn walk_dir<'a>(root: impl AsRef<Path>) -> Box<dyn Iterator<Item = PathBuf> + 'a> {
+    let mut entries = fs::read_dir(root.as_ref())
+        .unwrap_or_else(|_| panic!("failed to read directory: {:?}", root.as_ref()))
+        .filter_map(|entry| match entry {
+            Ok(entry) => {
+                let path = entry.path();
 
-                    if path.is_dir() {
-                        Some(walkdir(path).collect::<Vec<_>>())
-                    } else {
-                        Some(vec![path])
-                    }
+                if path.is_dir() {
+                    Some(walk_dir(path).collect::<Vec<_>>())
+                } else {
+                    Some(vec![path])
                 }
-                Err(_) => None,
-            })
-            .flatten(),
-    )
+            }
+            Err(_) => None,
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+
+    entries.sort();
+
+    Box::new(entries.into_iter())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Cursor, Read};
 
     use rstest::*;
 
@@ -535,6 +684,9 @@ mod tests {
         "GameConfig(window_size:(800,600),window_title:\"PAC-MAN\",fullscreen:false,mouse_sensitivity:1.4,key_bindings:{\"up\":Up,\"down\":Down,\"left\":Left,\"right\":Right,},difficulty_options:(start_difficulty:Easy,adaptive:false,),)"
     )]
     fn it_minify_ron(#[case] input: &str, #[case] output: &str) {
-        assert_eq!(output, String::from_utf8(ron_minify(input)).unwrap());
+        let mut min = RonMinifier::new(Cursor::new(input.as_bytes()));
+        let mut out = Vec::new();
+        min.read_to_end(&mut out).unwrap();
+        assert_eq!(output, String::from_utf8(out).unwrap());
     }
 }

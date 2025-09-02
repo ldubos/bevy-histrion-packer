@@ -43,23 +43,15 @@ fn main() {
         .run();
 
     // pack assets
-    bhp::writer::pack_assets_folder(
-        // processed assets directory
-        crate_dir.join("imported_assets/Default"),
-        // output file
-        crate_dir.join("assets.hpak"),
-        // do not compress metadata
-        bhp::CompressionMethod::None,
-        // use zlib compression method as default for data
-        bhp::CompressionMethod::Zlib,
-        // use default extensions compression method
-        bhp::writer::default_extensions_compression_method(),
-        // don't ignore missing meta
-        false,
-        // don't apply any alignment
-        // to align to 4096 bytes you could use:
-        // Some(4096),
-        None,
-    )
-    .unwrap();
+    let mut archive_writer = bhp::writer::HpakWriter::new(crate_dir.join("assets.hpak"))
+        .expect("Failed to create HpakWriter");
+
+    bhp::writer::set_default_extension_compression_methods(&mut archive_writer);
+
+    archive_writer
+        .meta_compression(bhp::CompressionMethod::None)
+        .add_paths_from_dir(crate_dir.join("imported_assets/Default"))
+        .expect("Failed to add paths from directory")
+        .build()
+        .expect("Failed to build archive");
 }

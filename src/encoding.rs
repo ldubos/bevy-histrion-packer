@@ -68,10 +68,6 @@ impl<T, const N: usize> Decode for [T; N]
 where
     T: Decode + Copy + 'static,
 {
-    #[expect(
-        clippy::uninit_assumed_init,
-        reason = "we use MaybeUninit::assume_init to initialize an array which is later set to the decoded values"
-    )]
     fn decode<R: Read>(mut reader: R) -> Result<Self> {
         {
             let mut arr: [MaybeUninit<T>; N] = [MaybeUninit::uninit(); N];
@@ -81,11 +77,11 @@ where
                     Ok(val) => arr[idx] = MaybeUninit::new(val),
                     Err(err) => {
                         // Drop any values that were already initialized
-                        for didx in 0..idx {
+                        for item in arr.iter_mut().take(idx) {
                             // SAFETY: We have exclusive access to the memory location
                             // and we are within current idx bounds
                             unsafe {
-                                arr[didx].assume_init_drop();
+                                item.assume_init_drop();
                             }
                         }
 
