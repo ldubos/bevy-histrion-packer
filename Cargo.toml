@@ -11,13 +11,14 @@ repository = "https://github.com/ldubos/bevy-histrion-packer"
 documentation = "https://docs.rs/bevy-histrion-packer"
 description = "A Bevy Plugin to pack all your game assets into a single common PAK like file format."
 exclude = [
+  ".github/",
   "example/",
   "fuzz/",
-  ".github/",
-  "rustfmt.toml",
-  "deny.toml",
   ".editorconfig",
-  ".rust-analyzer",
+  "*.hpak",
+  "CHANGELOG.md",
+  "deny.toml",
+  "rustfmt.toml",
 ]
 
 [features]
