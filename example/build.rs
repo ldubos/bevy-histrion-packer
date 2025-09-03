@@ -7,7 +7,7 @@ use text_asset::{TextAsset, TextAssetLoader};
 fn main() {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
-    // process assets, we can add more assets pre-processing steps here
+    // Process assets, we can add more assets pre-processing steps here
     App::new()
         .add_plugins(
             DefaultPlugins
@@ -42,7 +42,7 @@ fn main() {
         )
         .run();
 
-    // pack assets
+    // Pack assets
     let mut archive_writer = bhp::writer::HpakWriter::new(crate_dir.join("assets.hpak"))
         .expect("Failed to create HpakWriter");
 
@@ -50,6 +50,12 @@ fn main() {
 
     archive_writer
         .meta_compression(bhp::CompressionMethod::None)
+        // Set default for `text` extension
+        .default_compression_for_extension("text", bhp::CompressionMethod::Zlib)
+        // Disable alignment
+        .with_alignment(0)
+        // The folder containing Bevy's processed assets.
+        // This is typically the preferred directory to include in the packed archive.
         .add_paths_from_dir(crate_dir.join("imported_assets/Default"))
         .expect("Failed to add paths from directory")
         .build()
