@@ -29,5 +29,5 @@ bevy = { workspace = true, default-features = true, features = [
   "file_watcher",
   "embedded_watcher",
 ] }
-text_asset = { path = "text_asset" }
 bevy-histrion-packer = { path = "../" }
+text_asset = { path = "text_asset" }
