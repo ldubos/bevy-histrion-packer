@@ -6,8 +6,11 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-[workspace.dependencies]
-bevy = { version = "0.16", default-features = false }
+[workspace.dependencies.bevy]
+git = "https://github.com/bevyengine/bevy"
+rev = "2285632"
+default-features = false
+features = ["bevy_asset", "multi_threaded", "reflect_auto_register"]
 
 [package]
 name = "example"
@@ -16,10 +19,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-bevy = { workspace = true, default-features = false, features = [
-  "bevy_asset",
-  "multi_threaded",
-] }
+bevy.workspace = true
 bevy-histrion-packer = { path = "../" }
 text_asset = { path = "text_asset" }
 
