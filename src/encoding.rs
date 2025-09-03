@@ -1,10 +1,9 @@
 use crate::{Error, Result};
-use std::{
-    io::{Read, Write},
-    mem::MaybeUninit,
-    path::{Component, PathBuf},
-};
+use std::{io::Read, mem::MaybeUninit, path::PathBuf};
+#[cfg(feature = "writer")]
+use std::{io::Write, path::Component};
 
+#[cfg(feature = "writer")]
 pub trait Encode: Sized {
     fn encode<W: Write>(&self, writer: W) -> Result<usize>;
 }
@@ -15,6 +14,7 @@ pub trait Decode: Sized {
 
 macro_rules! num_impl {
     ($t:ty, $size:expr) => {
+        #[cfg(feature = "writer")]
         impl Encode for $t {
             fn encode<W: Write>(&self, mut writer: W) -> Result<usize> {
                 writer.write_all(&self.to_le_bytes())?;
@@ -41,6 +41,7 @@ macro_rules! num_impl {
 
 num_impl!(u8: 1, u16: 2, u32: 4, u64: 8);
 
+#[cfg(feature = "writer")]
 impl Encode for String {
     fn encode<W: Write>(&self, writer: W) -> Result<usize> {
         self.as_bytes().to_owned().encode(writer)
@@ -54,6 +55,7 @@ impl Decode for String {
     }
 }
 
+#[cfg(feature = "writer")]
 impl<T, const N: usize> Encode for [T; N]
 where
     T: Encode + Copy + 'static,
@@ -95,6 +97,7 @@ where
     }
 }
 
+#[cfg(feature = "writer")]
 impl<T> Encode for Vec<T>
 where
     T: Encode,
@@ -119,6 +122,7 @@ where
     }
 }
 
+#[cfg(feature = "writer")]
 impl Encode for PathBuf {
     fn encode<W: Write>(&self, writer: W) -> Result<usize> {
         {
@@ -184,6 +188,7 @@ mod tests {
     #[case(String::from("Hello World!"))]
     #[case([u64::MIN, 0u64, u64::MAX])]
     #[case(vec![u64::MIN, 0u64, u64::MAX, 42u64])]
+    #[cfg(feature = "writer")]
     fn it_encode_decode<T: Encode + Decode + PartialEq + Debug>(#[case] value: T) {
         let mut bytes = Vec::new();
         let size = value.encode(&mut bytes).unwrap();
@@ -194,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "writer"))]
     fn it_encode_decode_pathbuf_windows() {
         let path = PathBuf::from(r#"Hello\World\my_file.txt"#);
         let mut bytes = Vec::new();

@@ -3,12 +3,13 @@ mod reader;
 pub mod writer;
 
 use std::{
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
     io::{Read, Write},
     path::{Path, PathBuf},
 };
 
 use bevy::platform::collections::HashTable;
+use xxhash_rust::xxh3::Xxh3;
 
 use crate::{Result, encoding::*};
 
@@ -22,6 +23,7 @@ pub struct HpakHeader {
     pub(crate) entries_offset: u64,
 }
 
+#[cfg(feature = "writer")]
 impl Encode for HpakHeader {
     fn encode<W: Write>(&self, mut writer: W) -> crate::Result<usize> {
         Ok(crate::MAGIC.encode(&mut writer)?
@@ -73,6 +75,7 @@ impl HpakFileEntry {
     }
 }
 
+#[cfg(feature = "writer")]
 impl Encode for HpakFileEntry {
     fn encode<W: Write>(&self, mut writer: W) -> crate::Result<usize> {
         Ok(self.hash.encode(&mut writer)?
@@ -109,6 +112,7 @@ impl HpakDirectoryEntry {
     }
 }
 
+#[cfg(feature = "writer")]
 impl Encode for HpakDirectoryEntry {
     fn encode<W: Write>(&self, mut writer: W) -> crate::Result<usize> {
         Ok(self.hash.encode(&mut writer)? + self.entries.encode(&mut writer)?)
@@ -132,6 +136,7 @@ pub struct HpakEntries {
     pub(crate) files: HashTable<HpakFileEntry>,
 }
 
+#[cfg(feature = "writer")]
 impl Encode for HpakEntries {
     fn encode<W: Write>(&self, mut writer: W) -> Result<usize> {
         let directories_len = (self.directories.len() as u64).encode(&mut writer)?;
@@ -239,6 +244,7 @@ impl From<CompressionMethod> for u8 {
     }
 }
 
+#[cfg(feature = "writer")]
 impl Encode for CompressionMethod {
     fn encode<W: Write>(&self, mut writer: W) -> crate::Result<usize> {
         u8::from(*self).encode(&mut writer)
@@ -258,7 +264,7 @@ impl Decode for CompressionMethod {
 }
 
 pub(crate) fn hash_path<P: AsRef<Path>>(path: P) -> u64 {
-    let mut hasher = DefaultHasher::default();
+    let mut hasher = Xxh3::default();
     path.as_ref().hash(&mut hasher);
     hasher.finish()
 }

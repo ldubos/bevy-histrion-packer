@@ -26,6 +26,7 @@ default = ["writer"]
 writer = []
 
 [dependencies]
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 futures-io = "0.3"
 futures-lite = "2.6"

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - RON minifier now preserves escape sequences (e.g. `\\t`) inside strings instead of unescaping them
 - Properly handle partial initialization in array `Decode` impl to avoid unsafe indexing and clippy warnings
+- Entries' path now uses XXH3 ensuring hash stability
 
 ### Removed
 

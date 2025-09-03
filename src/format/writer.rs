@@ -340,7 +340,7 @@ enum RonStringState {
 
 pub struct RonMinifier<R: Read> {
     inner: R,
-    input_chars: Vec<char>,
+    input_buf: String,
     input_pos: usize,
     eof: bool,
     lookahead: Option<char>,
@@ -354,7 +354,7 @@ impl<R: Read> RonMinifier<R> {
     pub fn new(inner: R) -> Self {
         Self {
             inner,
-            input_chars: Vec::new(),
+            input_buf: String::new(),
             input_pos: 0,
             eof: false,
             lookahead: None,
@@ -366,7 +366,7 @@ impl<R: Read> RonMinifier<R> {
     }
 
     fn refill_input_chars(&mut self) -> std::io::Result<bool> {
-        if self.input_pos < self.input_chars.len() {
+        if self.input_pos < self.input_buf.len() {
             return Ok(true);
         }
 
@@ -381,11 +381,10 @@ impl<R: Read> RonMinifier<R> {
             return Ok(false);
         }
 
-        let s = String::from_utf8_lossy(&buf[..n]).to_string();
-        self.input_chars = s.chars().collect();
-        self.input_pos = 0;
+        let s = String::from_utf8_lossy(&buf[..n]);
+        self.input_buf.push_str(&s);
 
-        Ok(!self.input_chars.is_empty())
+        Ok(self.input_pos < self.input_buf.len())
     }
 
     fn peek_char(&mut self) -> std::io::Result<Option<char>> {
@@ -393,15 +392,14 @@ impl<R: Read> RonMinifier<R> {
             return Ok(self.lookahead);
         }
 
-        if self.input_pos < self.input_chars.len() {
-            let c = self.input_chars[self.input_pos];
+        if self.input_pos < self.input_buf.len() {
+            let c = self.input_buf[self.input_pos..].chars().next().unwrap();
             self.lookahead = Some(c);
             return Ok(self.lookahead);
         }
 
-        // try to refill
         if self.refill_input_chars()? {
-            let c = self.input_chars[self.input_pos];
+            let c = self.input_buf[self.input_pos..].chars().next().unwrap();
             self.lookahead = Some(c);
             return Ok(self.lookahead);
         }
@@ -411,21 +409,21 @@ impl<R: Read> RonMinifier<R> {
 
     fn next_char_consume(&mut self) -> std::io::Result<Option<char>> {
         if let Some(c) = self.lookahead.take() {
-            self.input_pos += 1;
+            self.input_pos += c.len_utf8();
             self.prev_input = Some(c);
             return Ok(Some(c));
         }
 
-        if self.input_pos < self.input_chars.len() {
-            let c = self.input_chars[self.input_pos];
-            self.input_pos += 1;
+        if self.input_pos < self.input_buf.len() {
+            let c = self.input_buf[self.input_pos..].chars().next().unwrap();
+            self.input_pos += c.len_utf8();
             self.prev_input = Some(c);
             return Ok(Some(c));
         }
 
         if self.refill_input_chars()? {
-            let c = self.input_chars[self.input_pos];
-            self.input_pos += 1;
+            let c = self.input_buf[self.input_pos..].chars().next().unwrap();
+            self.input_pos += c.len_utf8();
             self.prev_input = Some(c);
             return Ok(Some(c));
         }
@@ -515,8 +513,8 @@ impl<R: Read> Read for RonMinifier<R> {
                         if !c.is_ascii_whitespace() {
                             self.push_char(c);
                         } else {
-                            let next = if self.input_pos < self.input_chars.len() {
-                                Some(self.input_chars[self.input_pos])
+                            let next = if self.input_pos < self.input_buf.len() {
+                                self.input_buf[self.input_pos..].chars().next()
                             } else {
                                 None
                             };

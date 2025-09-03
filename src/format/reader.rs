@@ -130,6 +130,30 @@ impl AssetReader for HpakReader {
         }
     }
 
+    async fn read_meta_bytes<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> std::result::Result<Vec<u8>, AssetReaderError> {
+        let entry = self.get_entry(path)?;
+
+        if entry.meta_size == 0 {
+            return Ok(Vec::new());
+        }
+
+        let start = entry.meta_offset as usize;
+        let end = start + entry.meta_size as usize;
+
+        match entry.compression_method {
+            CompressionMethod::None => Ok(self.mmap[start..end].to_vec()),
+            CompressionMethod::Zlib => {
+                let mut meta_reader = self.read_meta(path)?;
+                let mut meta_bytes = Vec::new();
+                meta_reader.read_to_end(&mut meta_bytes).await?;
+                Ok(meta_bytes)
+            }
+        }
+    }
+
     async fn read_directory<'a>(
         &'a self,
         path: &'a Path,
@@ -177,11 +201,10 @@ impl HpakEntryReader {
             CompressionMethod::None => ReaderState::Uncompressed(slice),
             CompressionMethod::Zlib => ReaderState::Compressed {
                 cursor: 0,
-                // Strange rust-analyzer error, just ignore it...
-                decoder: Arc::new(parking_lot::Mutex::new(Box::new(
-                    flate2::read::ZlibDecoder::new_with_buf(slice, vec![0u8; 4 * 1024]),
-                )
-                    as Box<dyn Read + Send + Sync>)),
+                decoder: Box::new(flate2::read::ZlibDecoder::new_with_buf(
+                    slice,
+                    vec![0u8; 4 * 1024],
+                )) as Box<dyn Read + Send + Sync>,
             },
         };
 
@@ -193,7 +216,7 @@ enum ReaderState {
     Uncompressed(MmapSliceReader),
     Compressed {
         cursor: u64,
-        decoder: Arc<parking_lot::Mutex<dyn Read + Send + Sync + 'static>>,
+        decoder: Box<dyn Read + Send + Sync + 'static>,
     },
 }
 
@@ -229,18 +252,38 @@ impl MmapSliceReader {
     }
 }
 
+#[inline]
+#[cold]
+fn cold() {}
+
+/// Hint the compiler that it is unlikely to be true.
+#[inline]
+fn unlikely(b: bool) -> bool {
+    if b {
+        cold();
+    }
+    b
+}
+
 impl Read for MmapSliceReader {
+    #[inline]
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.pos >= self.len {
+        if unlikely(buf.is_empty() || self.pos >= self.len) {
             return Ok(0);
         }
 
         let remaining = self.len - self.pos;
         let to_read = remaining.min(buf.len());
         let start = self.offset + self.pos;
-        let end = start + to_read;
 
-        buf[..to_read].copy_from_slice(&self.source[start..end]);
+        let src = &self.source[..];
+
+        // SAFETY: We have ensured that the ranges are valid and non-overlapping,
+        // and `buf` is not part of the mmap
+        unsafe {
+            core::ptr::copy_nonoverlapping(src.as_ptr().add(start), buf.as_mut_ptr(), to_read);
+        }
+
         self.pos += to_read;
 
         Ok(to_read)
@@ -259,18 +302,15 @@ impl AsyncRead for HpakEntryReader {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Poll::Pending,
                 Err(e) => Poll::Ready(Err(e)),
             },
-            ReaderState::Compressed { cursor, decoder } => {
-                let mut decoder = decoder.lock();
-                match decoder.read(buf) {
-                    Ok(0) => Poll::Ready(Ok(0)),
-                    Ok(n) => {
-                        *cursor += n as u64;
-                        Poll::Ready(Ok(n))
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Poll::Pending,
-                    Err(e) => Poll::Ready(Err(e)),
+            ReaderState::Compressed { cursor, decoder } => match decoder.read(buf) {
+                Ok(0) => Poll::Ready(Ok(0)),
+                Ok(n) => {
+                    *cursor += n as u64;
+                    Poll::Ready(Ok(n))
                 }
-            }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Poll::Pending,
+                Err(e) => Poll::Ready(Err(e)),
+            },
         }
     }
 }
@@ -289,7 +329,6 @@ impl AsyncSeekForward for HpakEntryReader {
             },
             ReaderState::Compressed { cursor, decoder } => {
                 let mut offset = offset;
-                let mut decoder = decoder.lock();
                 let mut read_buffer = vec![0u8; 4096.min(offset as usize)];
 
                 while offset > 0 {
