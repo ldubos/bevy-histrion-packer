@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use a memory-mapped slice reader for archive entries
 - Updated default per-extension compression mapping and added `set_default_extension_compression_methods` to populate sensible defaults for common file extensions
 - Writer defaults: metadata minification enabled and entry alignment defaults to 4096 bytes, entries are deterministically sorted when packing directories
+- Improved `HpakReader` performance
 
 ### Added
 
