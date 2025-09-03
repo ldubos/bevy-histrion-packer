@@ -20,14 +20,12 @@ publish.workspace = true
 
 [dependencies]
 bevy.workspace = true
-bevy-histrion-packer = { path = "../" }
+bevy-histrion-packer = { path = "../", default-features = false }
 text_asset = { path = "text_asset" }
 
 [build-dependencies]
 bevy = { workspace = true, default-features = true, features = [
   "asset_processor",
-  "file_watcher",
-  "embedded_watcher",
 ] }
 bevy-histrion-packer = { path = "../" }
 text_asset = { path = "text_asset" }
