@@ -7,8 +7,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies.bevy]
-git = "https://github.com/bevyengine/bevy"
-rev = "2285632"
+version = "0.17.0-rc.1"
 default-features = false
 features = ["bevy_asset", "multi_threaded", "reflect_auto_register"]
 

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Bumped `flate2` to `1.1` (enabled `zlib-rs` feature)
+- Bumped `bevy` to `0.17.0`
 - Reworked `HpakWriter` into a builder-style API
 - Use a memory-mapped slice reader for archive entries
 - Updated default per-extension compression mapping and added `set_default_extension_compression_methods` to populate sensible defaults for common file extensions
