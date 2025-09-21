@@ -32,7 +32,7 @@ fn main() {
         .add_systems(
             Update,
             |asset_processor: Res<bevy::asset::processor::AssetProcessor>,
-             mut exit_tx: EventWriter<AppExit>| {
+             mut exit_tx: MessageWriter<AppExit>| {
                 if bevy::tasks::block_on(asset_processor.get_state())
                     == bevy::asset::processor::ProcessorState::Finished
                 {
