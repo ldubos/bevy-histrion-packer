@@ -1,4 +1,4 @@
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(not(any(windows, unix)))]
 compile_error!("bevy-histrion-packer is not supported on this platform");
