@@ -17,7 +17,7 @@ Pack all your game assets into a single common PAK like file format.
 
 ## File Structure
 
-```
+```text
          +--------------------------------+ 0x0000
          |             Header             |
          +--------------------------------+
@@ -61,9 +61,10 @@ Offset  Size    Description
 
 ## Features
 
-| feature | description                                                                              |
-| ------- | ---------------------------------------------------------------------------------------- |
-| writer  | Enables the ability to generate a HPAK file with [`HpakWriter`](./src/format/writer.rs). |
+| feature     | description                                                                              |
+| ----------- | ---------------------------------------------------------------------------------------- |
+| writer      | Enables the ability to generate a HPAK file with [`HpakWriter`](./src/format/writer.rs). |
+| debug-impls | Implement the `Debug` trait for applicable types.                                        |
 
 ## Bevy Compatibility
 

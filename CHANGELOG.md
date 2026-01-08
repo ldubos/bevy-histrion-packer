@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Improved documentation
+
+### Added
+
+- Added `debug-impls` feature
+
+### Fixed
+
+- Avoid panics when calling `HpakWriter::add_paths_from_dir`
+
 ## [0.7.1] - 2025-09-30
 
 ### Fixed

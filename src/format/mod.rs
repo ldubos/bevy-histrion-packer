@@ -15,7 +15,12 @@ use crate::{Result, encoding::*};
 
 pub use reader::*;
 
-#[derive(Clone, Debug)]
+/// Header structure of an HPAK archive file.
+///
+/// The header is located at the beginning of the file and contains metadata
+/// about the archive format and where to find the entry table.
+#[cfg_attr(feature = "debug-impls", derive(Debug))]
+#[derive(Clone)]
 pub struct HpakHeader {
     /// Metadata compression method.
     pub(crate) meta_compression_method: CompressionMethod,
@@ -54,8 +59,12 @@ impl Decode for HpakHeader {
     }
 }
 
-/// An entry in the HPAK archive.
-#[derive(Clone, PartialEq, Debug)]
+/// A file entry in the HPAK archive.
+///
+/// Each file entry contains metadata about a file stored in the archive,
+/// including its location, size, and compression method.
+#[cfg_attr(feature = "debug-impls", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct HpakFileEntry {
     /// Hash of the entry's path.
     pub(crate) hash: u64,
@@ -70,6 +79,7 @@ pub struct HpakFileEntry {
 }
 
 impl HpakFileEntry {
+    /// Returns the hash of the file's path.
     pub const fn hash(&self) -> u64 {
         self.hash
     }
@@ -98,7 +108,12 @@ impl Decode for HpakFileEntry {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+/// A directory entry in the HPAK archive.
+///
+/// Directory entries store information about the contents of a directory,
+/// allowing for efficient directory listing operations.
+#[cfg_attr(feature = "debug-impls", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct HpakDirectoryEntry {
     /// Hash of the entry's path.
     pub(crate) hash: u64,
@@ -107,6 +122,7 @@ pub struct HpakDirectoryEntry {
 }
 
 impl HpakDirectoryEntry {
+    /// Returns the hash of the directory's path.
     pub const fn hash(&self) -> u64 {
         self.hash
     }
@@ -128,7 +144,11 @@ impl Decode for HpakDirectoryEntry {
     }
 }
 
-#[derive(Clone, Debug)]
+/// Collection of all entries (files and directories) in an HPAK archive.
+///
+/// This structure uses hash tables for O(1) lookups of entries by path hash.
+#[cfg_attr(feature = "debug-impls", derive(Debug))]
+#[derive(Clone)]
 pub struct HpakEntries {
     /// Directory entries in the archive.
     pub(crate) directories: HashTable<HpakDirectoryEntry>,
@@ -178,16 +198,29 @@ impl Decode for HpakEntries {
     }
 }
 
+/// Compression method used for data in the HPAK archive.
+///
+/// The compression method affects both the storage size and the decompression
+/// performance when loading assets.
 #[repr(u8)]
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
+#[cfg_attr(feature = "debug-impls", derive(Debug))]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
 pub enum CompressionMethod {
+    /// No compression.
     #[default]
     None = 0,
+
+    /// Zlib compression using zopfli for maximum compression ratio.
+    ///
+    /// This provides excellent compression at the cost of slow compression times.
+    /// Since compression is done at build time, this is ideal for production builds
+    /// where smaller file sizes are preferred over build speed.
     Zlib = 1,
 }
 
 impl CompressionMethod {
-    pub fn compress<R: Read, W: Write>(&self, mut reader: R, mut writer: W) -> Result<u64> {
+    /// Compress data from `reader` and write to `writer`, returning the number of bytes written.
+    pub(crate) fn compress<R: Read, W: Write>(&self, mut reader: R, mut writer: W) -> Result<u64> {
         match self {
             CompressionMethod::None => Ok(std::io::copy(&mut reader, &mut writer)?),
             CompressionMethod::Zlib => {

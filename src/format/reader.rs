@@ -54,6 +54,10 @@ fn open_archive(path: impl AsRef<Path>) -> Result<File> {
 }
 
 impl HpakReader {
+    /// Create a new HPAK reader for the archive at the specified path.
+    ///
+    /// This opens the file and reads the header and entry table into memory.
+    /// The actual asset data remains on disk and is accessed via memory mapping.
     pub fn new(path: impl AsRef<Path>) -> Result<Self> {
         let mut file = open_archive(path)?;
 
@@ -103,9 +107,7 @@ impl HpakReader {
         self.entries
             .files
             .find(hash, |entry| entry.hash == hash)
-            .map_or(Err(Error::EntryNotFound(path.to_path_buf())), |entry| {
-                Ok(entry)
-            })
+            .ok_or_else(|| Error::EntryNotFound(path.to_path_buf()))
     }
 }
 

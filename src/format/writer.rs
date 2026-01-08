@@ -12,8 +12,29 @@ use crate::{Error, Result, encoding::*};
 
 /// Writer for creating HPAK archives.
 ///
-/// This type implements a small builder-style API for configuring how files
+/// This type implements a builder-style API for configuring how files
 /// are added to the archive and how metadata and data are compressed.
+///
+/// # Examples
+///
+/// ```no_run
+/// use bevy_histrion_packer::writer::HpakWriter;
+/// use bevy_histrion_packer::CompressionMethod;
+///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut writer = HpakWriter::new("output.hpak")?;
+///
+/// writer
+///     .meta_compression(CompressionMethod::Zlib)
+///     .default_data_compression(CompressionMethod::Zlib)
+///     .minify_metadata(true)
+///     .with_alignment(4096)
+///     .add_paths_from_dir("assets")?
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
+#[cfg_attr(feature = "debug-impls", derive(Debug))]
 pub struct HpakWriter {
     output: File,
     /// Compression method to use for metadata blocks.
@@ -32,7 +53,13 @@ pub struct HpakWriter {
 }
 
 impl HpakWriter {
-    /// Create a new HPAK writer.
+    /// Create a new HPAK writer that will write to the specified path.
+    ///
+    /// The file will be created (or truncated if it exists) when this is called.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be created or opened for writing.
     pub fn new(path: impl AsRef<Path>) -> Result<Self> {
         let output = OpenOptions::new()
             .write(true)
@@ -137,24 +164,33 @@ impl HpakWriter {
     }
 
     /// Recursively queue all files found under `dir` to be added to the archive.
+    ///
+    /// The directory prefix will be stripped from the archive paths.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The directory does not exist
+    /// - The path is not a directory
+    /// - Files cannot be read during traversal
     pub fn add_paths_from_dir(&mut self, dir: impl AsRef<Path>) -> Result<&mut Self> {
         let dir = dir.as_ref();
 
         if !dir.exists() {
             return Err(Error::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("dir directory does not exist: {dir:?}"),
+                format!("directory does not exist: {}", dir.display()),
             )));
         }
 
         if !dir.is_dir() {
             return Err(Error::Io(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("dir is not a directory: {dir:?}"),
+                std::io::ErrorKind::InvalidInput,
+                format!("path is not a directory: {}", dir.display()),
             )));
         }
 
-        for entry in walk_dir(dir) {
+        for entry in walk_dir(dir)? {
             if entry.extension().and_then(|e| e.to_str()).unwrap_or("") == "meta" {
                 continue;
             }
@@ -165,7 +201,11 @@ impl HpakWriter {
                 Err(e) => {
                     return Err(Error::Io(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
-                        format!("failed to strip prefix: {e}"),
+                        format!(
+                            "failed to strip prefix '{}' from path '{}': {e}",
+                            dir.display(),
+                            archive_path.display()
+                        ),
                     )));
                 }
             };
@@ -176,7 +216,19 @@ impl HpakWriter {
         Ok(self)
     }
 
-    /// Build the archive.
+    /// Build the archive by processing all queued files.
+    ///
+    /// This method compresses and writes all queued files to the archive,
+    /// then writes the entry table and finalizes the header. Once this is
+    /// called, the archive cannot be modified further.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The archive has already been finalized
+    /// - Duplicate entry paths are detected
+    /// - Files cannot be read or compressed
+    /// - Writing to the archive fails
     pub fn build(&mut self) -> Result<()> {
         if self.finalized {
             return Err(Error::AlreadyFinalized);
@@ -193,9 +245,21 @@ impl HpakWriter {
             let ext = disk_path.extension().and_then(|e| e.to_str()).unwrap_or("");
             let meta_path = meta_path_for(disk_path);
 
-            println!("Adding {:?} (meta: {:?})", disk_path, meta_path);
-            let meta = File::open(&meta_path)?;
-            let data = File::open(disk_path)?;
+            let meta = File::open(&meta_path).map_err(|e| {
+                Error::Io(std::io::Error::new(
+                    e.kind(),
+                    format!(
+                        "failed to open metadata file '{}': {e}",
+                        meta_path.display()
+                    ),
+                ))
+            })?;
+            let data = File::open(disk_path).map_err(|e| {
+                Error::Io(std::io::Error::new(
+                    e.kind(),
+                    format!("failed to open data file '{}': {e}", disk_path.display()),
+                ))
+            })?;
 
             let compression_method = compression_method.unwrap_or_else(|| {
                 self.default_compression_by_extension
@@ -319,20 +383,20 @@ impl HpakWriter {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq)]
 enum RonState {
     None,
     String(RonStringState),
     Comment(RonCommentType),
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq)]
 enum RonCommentType {
     Line,
     Block,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq)]
 enum RonStringState {
     None,
     Escape,
@@ -547,8 +611,7 @@ impl<R: Read> Read for RonMinifier<R> {
     }
 }
 
-/// Populate `writer` with a set of sensible defaults for common file
-/// extensions.
+/// Populate `writer` with sensible compression defaults for common file extensions.
 pub fn set_default_extension_compression_methods(writer: &mut HpakWriter) {
     use CompressionMethod::*;
 
@@ -618,27 +681,36 @@ fn meta_path_for(path: impl AsRef<Path>) -> PathBuf {
     meta_path
 }
 
-fn walk_dir<'a>(root: impl AsRef<Path>) -> Box<dyn Iterator<Item = PathBuf> + 'a> {
-    let mut entries = fs::read_dir(root.as_ref())
-        .unwrap_or_else(|_| panic!("failed to read directory: {:?}", root.as_ref()))
-        .filter_map(|entry| match entry {
+fn walk_dir<'a>(root: impl AsRef<Path>) -> Result<Box<dyn Iterator<Item = PathBuf> + 'a>> {
+    let root_path = root.as_ref();
+
+    let mut entries = match fs::read_dir(root_path) {
+        Ok(mut dir) => dir.try_fold(Vec::with_capacity(32), |mut acc, entry| match entry {
             Ok(entry) => {
                 let path = entry.path();
 
                 if path.is_dir() {
-                    Some(walk_dir(path).collect::<Vec<_>>())
+                    acc.extend(walk_dir(path)?);
                 } else {
-                    Some(vec![path])
+                    acc.push(path);
                 }
+
+                Ok(acc)
             }
-            Err(_) => None,
-        })
-        .flatten()
-        .collect::<Vec<_>>();
+            Err(e) => Err(Error::Io(std::io::Error::new(
+                e.kind(),
+                format!(
+                    "Error reading directory entry in '{}': {e}",
+                    root_path.display()
+                ),
+            ))),
+        })?,
+        Err(e) => Err(Error::Io(e))?,
+    };
 
     entries.sort();
 
-    Box::new(entries.into_iter())
+    Ok(Box::new(entries.into_iter()))
 }
 
 #[cfg(test)]

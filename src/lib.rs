@@ -1,4 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc = include_str!("../README.md")]
 
 #[cfg(not(any(windows, unix)))]
 compile_error!("bevy-histrion-packer is not supported on this platform");
@@ -16,10 +17,15 @@ use thiserror::Error;
 
 pub use format::{CompressionMethod, HpakReader};
 
-/// The magic of the HPAK file format.
+/// The magic number identifying HPAK files (ASCII "HPAK").
+///
+/// This appears at the start of every HPAK archive and is used to
+/// quickly validate that a file is in the correct format.
 pub const MAGIC: [u8; 4] = *b"HPAK";
 
-/// The format version of the HPAK file format.
+/// The current version of the HPAK file format.
+///
+/// This version number is stored in the archive header.
 pub const VERSION: u32 = 6;
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -58,13 +64,23 @@ impl From<Error> for AssetReaderError {
     }
 }
 
-#[derive(Clone, Debug)]
+/// Configuration mode for how the HistrionPackerPlugin integrates with Bevy's asset system.
+#[cfg_attr(feature = "debug-impls", derive(Debug))]
+#[derive(Clone)]
 pub enum HistrionPackerMode {
     /// Add a new [`AssetSource`] available through the `<source_id>://` source.
-    Autoload(&'static str),
-    /// Replace the default [`AssetSource`] with the hpak source for processed files only,
     ///
-    /// it uses the default source for the current platform for unprocessed files.
+    /// This mode creates an additional asset source that can be accessed with a custom prefix.
+    /// For example, with `Autoload("packed")`, assets can be loaded using `packed://path/to/asset`.
+    Autoload(&'static str),
+
+    /// Replace the default [`AssetSource`] with the HPAK source for processed files only.
+    ///
+    /// In this mode, the plugin intercepts only processed asset loads and serves them from
+    /// the HPAK archive, while unprocessed assets are still loaded from the filesystem.
+    /// This is the recommended mode for production builds.
+    ///
+    /// **Important**: This plugin must be added **before** `AssetPlugin` in the plugin chain.
     ReplaceDefaultProcessed,
 }
 
@@ -74,8 +90,37 @@ impl Default for HistrionPackerMode {
     }
 }
 
+/// Bevy plugin for loading assets from HPAK archives.
+///
+/// This plugin integrates with Bevy's asset system to load assets from a packed HPAK archive
+/// instead of (or in addition to) loose files on disk.
+///
+/// # Examples
+///
+/// ```no_run
+/// use bevy::prelude::*;
+/// use bevy_histrion_packer::{HistrionPackerPlugin, HistrionPackerMode};
+///
+/// App::new()
+///     .add_plugins(
+///         DefaultPlugins
+///             .build()
+///             .add_before::<AssetPlugin>(HistrionPackerPlugin {
+///                 source: "assets.hpak".to_string(),
+///                 mode: HistrionPackerMode::ReplaceDefaultProcessed,
+///             })
+///             .set(AssetPlugin {
+///                 mode: AssetMode::Processed,
+///                 ..default()
+///             }),
+///     )
+///     .run();
+/// ```
 pub struct HistrionPackerPlugin {
+    /// Path to the HPAK archive file, relative to the executable location.
     pub source: String,
+
+    /// Integration mode determining how the plugin interacts with Bevy's asset system.
     pub mode: HistrionPackerMode,
 }
 
@@ -135,7 +180,13 @@ impl Plugin for HistrionPackerPlugin {
     }
 }
 
+/// Writer module for creating HPAK archives.
+///
+/// This module is only available when the `writer` feature is enabled.
+/// It provides the `HpakWriter` type and related utilities for packing
+/// assets into HPAK archives.
 #[cfg(feature = "writer")]
+#[cfg_attr(docsrs, doc(cfg(feature = "writer")))]
 pub mod writer {
     use super::*;
 

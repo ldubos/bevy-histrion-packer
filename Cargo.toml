@@ -23,7 +23,12 @@ exclude = [
 
 [features]
 default = ["writer"]
+
+# Enables the ability to create HPAK archives using the HpakWriter API
 writer = []
+
+# Implement the `Debug` trait for applicable types.
+debug-impls = []
 
 [dependencies]
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
