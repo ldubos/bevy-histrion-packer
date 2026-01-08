@@ -1,7 +1,10 @@
 use super::*;
 use crate::{Error, Result, encoding::*};
-use bevy::asset::io::{AssetReader, AssetReaderError, AsyncSeekForward, PathStream, Reader};
-use futures_io::AsyncRead;
+use bevy::asset::io::{
+    AssetReader, AssetReaderError, PathStream, Reader, ReaderRequiredFeatures, SeekKind,
+    UnsupportedReaderFeature,
+};
+use futures_io::{AsyncRead, AsyncSeek};
 use memmap2::Mmap;
 use std::mem::ManuallyDrop;
 use std::pin::Pin;
@@ -115,7 +118,17 @@ impl AssetReader for HpakReader {
     async fn read<'a>(
         &'a self,
         path: &'a Path,
+        required_features: ReaderRequiredFeatures,
     ) -> std::result::Result<Box<dyn Reader + 'a>, AssetReaderError> {
+        match required_features.seek {
+            SeekKind::OnlyForward => { /* ok */ }
+            SeekKind::AnySeek => {
+                return Err(AssetReaderError::UnsupportedFeature(
+                    UnsupportedReaderFeature::AnySeek,
+                ));
+            }
+        }
+
         match self.read_data(path) {
             Ok(reader) => Ok(Box::new(reader)),
             Err(e) => Err(e.into()),
@@ -254,12 +267,12 @@ impl MmapSliceReader {
     }
 }
 
-#[inline]
 #[cold]
+#[inline(always)]
 fn cold() {}
 
 /// Hint the compiler that it is unlikely to be true.
-#[inline]
+#[inline(always)]
 fn unlikely(b: bool) -> bool {
     if b {
         cold();
@@ -317,12 +330,30 @@ impl AsyncRead for HpakEntryReader {
     }
 }
 
-impl AsyncSeekForward for HpakEntryReader {
-    fn poll_seek_forward(
+impl AsyncSeek for HpakEntryReader {
+    fn poll_seek(
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
-        offset: u64,
+        pos: SeekFrom,
     ) -> Poll<futures_io::Result<u64>> {
+        let offset = match pos {
+            SeekFrom::Current(offset) => {
+                if unlikely(offset < 0) {
+                    return Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "backward seeking is not supported",
+                    )));
+                }
+                offset as u64
+            }
+            _ => {
+                return Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "only forward seeking is supported",
+                )));
+            }
+        };
+
         match &mut self.state {
             ReaderState::Uncompressed(cursor) => match cursor.seek_forward(offset) {
                 Ok(new_pos) => Poll::Ready(Ok(new_pos)),
@@ -365,8 +396,7 @@ impl futures_lite::Stream for DirStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::asset::io::AsyncSeekForwardExt;
-    use futures::executor::block_on;
+    use futures::{AsyncSeekExt, executor::block_on};
     use rstest::rstest;
 
     #[rstest]
@@ -415,8 +445,11 @@ mod tests {
         let mut buffer = Vec::new();
 
         block_on(async {
-            assert_eq!(1024, reader.seek_forward(1024).await.unwrap());
-            assert_eq!(1024 + 8192, reader.seek_forward(8192).await.unwrap());
+            assert_eq!(1024, reader.seek(SeekFrom::Current(1024)).await.unwrap());
+            assert_eq!(
+                1024 + 8192,
+                reader.seek(SeekFrom::Current(8192)).await.unwrap()
+            );
             reader.read_to_end(&mut buffer).await.unwrap();
         });
 

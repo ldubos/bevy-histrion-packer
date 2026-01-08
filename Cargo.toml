@@ -44,7 +44,7 @@ zopfli = { version = "0.8", default-features = false, features = [
 ] }
 
 [dependencies.bevy]
-version = "0.17"
+version = "0.18.0-rc.2"
 default-features = false
 features = ["bevy_asset", "bevy_log", "std"]
 

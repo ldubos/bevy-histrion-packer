@@ -10,7 +10,7 @@ mod format;
 use std::path::PathBuf;
 
 use bevy::{
-    asset::io::{AssetReaderError, AssetSource, AssetSourceId},
+    asset::io::{AssetReaderError, AssetSource, AssetSourceBuilder, AssetSourceId},
     prelude::*,
 };
 use thiserror::Error;
@@ -66,7 +66,7 @@ impl From<Error> for AssetReaderError {
 
 /// Configuration mode for how the HistrionPackerPlugin integrates with Bevy's asset system.
 #[cfg_attr(feature = "debug-impls", derive(Debug))]
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum HistrionPackerMode {
     /// Add a new [`AssetSource`] available through the `<source_id>://` source.
     ///
@@ -81,13 +81,8 @@ pub enum HistrionPackerMode {
     /// This is the recommended mode for production builds.
     ///
     /// **Important**: This plugin must be added **before** `AssetPlugin` in the plugin chain.
+    #[default]
     ReplaceDefaultProcessed,
-}
-
-impl Default for HistrionPackerMode {
-    fn default() -> Self {
-        Self::ReplaceDefaultProcessed
-    }
 }
 
 /// Bevy plugin for loading assets from HPAK archives.
@@ -154,7 +149,10 @@ impl Plugin for HistrionPackerPlugin {
             HistrionPackerMode::Autoload(source_id) => {
                 app.register_asset_source(
                     AssetSourceId::Name(source_id.into()),
-                    AssetSource::build().with_reader(move || {
+                    AssetSourceBuilder::new(|| {
+                        AssetSource::get_default_reader("assets".to_string())()
+                    })
+                    .with_processed_reader(move || {
                         let source = source.clone();
                         Box::new(HpakReader::new(&source).unwrap())
                     }),
@@ -168,12 +166,13 @@ impl Plugin for HistrionPackerPlugin {
 
                 app.register_asset_source(
                     AssetSourceId::Default,
-                    AssetSource::build()
-                        .with_reader(|| AssetSource::get_default_reader("assets".to_string())())
-                        .with_processed_reader(move || {
-                            let source = source.clone();
-                            Box::new(HpakReader::new(&source).unwrap())
-                        }),
+                    AssetSourceBuilder::new(|| {
+                        AssetSource::get_default_reader("assets".to_string())()
+                    })
+                    .with_processed_reader(move || {
+                        let source = source.clone();
+                        Box::new(HpakReader::new(&source).unwrap())
+                    }),
                 );
             }
         }
