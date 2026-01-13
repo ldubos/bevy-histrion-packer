@@ -1,9 +1,6 @@
 use super::*;
 use crate::{Error, Result, encoding::*};
-use bevy::asset::io::{
-    AssetReader, AssetReaderError, PathStream, Reader, ReaderRequiredFeatures, SeekKind,
-    UnsupportedReaderFeature,
-};
+use bevy::asset::io::{AssetReader, AssetReaderError, PathStream, Reader, SeekableReader};
 use futures_io::{AsyncRead, AsyncSeek};
 use memmap2::Mmap;
 use std::mem::ManuallyDrop;
@@ -118,17 +115,7 @@ impl AssetReader for HpakReader {
     async fn read<'a>(
         &'a self,
         path: &'a Path,
-        required_features: ReaderRequiredFeatures,
     ) -> std::result::Result<Box<dyn Reader + 'a>, AssetReaderError> {
-        match required_features.seek {
-            SeekKind::OnlyForward => { /* ok */ }
-            SeekKind::AnySeek => {
-                return Err(AssetReaderError::UnsupportedFeature(
-                    UnsupportedReaderFeature::AnySeek,
-                ));
-            }
-        }
-
         match self.read_data(path) {
             Ok(reader) => Ok(Box::new(reader)),
             Err(e) => Err(e.into()),
@@ -381,7 +368,13 @@ impl AsyncSeek for HpakEntryReader {
     }
 }
 
-impl Reader for HpakEntryReader {}
+impl Reader for HpakEntryReader {
+    fn seekable(
+        &mut self,
+    ) -> std::result::Result<&mut dyn SeekableReader, bevy::asset::io::ReaderNotSeekableError> {
+        Err(bevy::asset::io::ReaderNotSeekableError)
+    }
+}
 
 pub struct DirStream(Vec<PathBuf>);
 
