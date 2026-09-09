@@ -4,9 +4,12 @@ pub mod writer;
 
 use std::{
     hash::{Hash, Hasher},
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
 };
+
+#[cfg(feature = "writer")]
+use std::io::Write;
 
 use bevy::platform::collections::HashTable;
 use xxhash_rust::xxh3::Xxh3;
@@ -218,6 +221,7 @@ pub enum CompressionMethod {
     Zlib = 1,
 }
 
+#[cfg(feature = "writer")]
 impl CompressionMethod {
     /// Compress data from `reader` and write to `writer`, returning the number of bytes written.
     pub(crate) fn compress<R: Read, W: Write>(&self, mut reader: R, mut writer: W) -> Result<u64> {
@@ -235,6 +239,7 @@ impl CompressionMethod {
     }
 }
 
+#[cfg(feature = "writer")]
 mod write_counter {
     use std::io::Write;
 

@@ -12,19 +12,14 @@ fn main() {
         .add_plugins(
             DefaultPlugins
                 .build()
-                .set(bevy::window::WindowPlugin {
-                    primary_window: None,
-                    exit_condition: bevy::window::ExitCondition::DontExit,
-                    ..default()
-                })
+                .set(bevy::app::ScheduleRunnerPlugin::run_loop(
+                    std::time::Duration::from_secs_f64(1.0 / 30.0),
+                ))
                 .set(bevy::asset::AssetPlugin {
                     mode: AssetMode::Processed,
                     ..default()
                 }),
         )
-        .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
-            std::time::Duration::from_secs_f64(1.0 / 30.0),
-        ))
         // Custom Assets
         .init_asset::<TextAsset>()
         .init_asset_loader::<TextAssetLoader>()

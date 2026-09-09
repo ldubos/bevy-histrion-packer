@@ -7,7 +7,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies.bevy]
-version = "0.17"
+version = "0.19"
 default-features = false
 features = ["bevy_asset", "multi_threaded", "reflect_auto_register"]
 
@@ -23,8 +23,6 @@ bevy-histrion-packer = { path = "../", default-features = false }
 text_asset = { path = "text_asset" }
 
 [build-dependencies]
-bevy = { workspace = true, default-features = true, features = [
-  "asset_processor",
-] }
+bevy = { workspace = true, features = ["asset_processor"] }
 bevy-histrion-packer = { path = "../" }
 text_asset = { path = "text_asset" }

@@ -12,7 +12,7 @@ impl std::fmt::Display for TextAsset {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, TypePath)]
 pub struct TextAssetLoader;
 
 impl AssetLoader for TextAssetLoader {

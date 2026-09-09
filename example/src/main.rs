@@ -8,7 +8,9 @@ fn main() {
         .add_plugins(
             DefaultPlugins
                 .build()
-                .set(ScheduleRunnerPlugin::run_once())
+                .set(ScheduleRunnerPlugin::run_loop(
+                    std::time::Duration::from_secs_f64(1.0 / 30.0),
+                ))
                 .add_before::<AssetPlugin>(HistrionPackerPlugin {
                     source: env!("CARGO_MANIFEST_DIR").to_string() + "/assets.hpak",
                     mode: bevy_histrion_packer::HistrionPackerMode::ReplaceDefaultProcessed,
@@ -30,7 +32,6 @@ fn main() {
 struct State {
     a: Handle<TextAsset>,
     b: Handle<TextAsset>,
-    printed: bool,
 }
 
 fn setup(mut state: ResMut<State>, asset_server: Res<AssetServer>) {
@@ -38,11 +39,11 @@ fn setup(mut state: ResMut<State>, asset_server: Res<AssetServer>) {
     state.b = asset_server.load("sub/图.text");
 }
 
-fn print_on_load(mut state: ResMut<State>, text_assets: Res<Assets<TextAsset>>) {
-    if state.printed {
-        return;
-    }
-
+fn print_on_load(
+    state: Res<State>,
+    text_assets: Res<Assets<TextAsset>>,
+    mut exit_tx: MessageWriter<AppExit>,
+) {
     let a = match text_assets.get(&state.a) {
         Some(a) => a,
         None => return,
@@ -56,5 +57,5 @@ fn print_on_load(mut state: ResMut<State>, text_assets: Res<Assets<TextAsset>>) 
     info!("TextAsset A: {}", a);
     info!("TextAsset B: {}", b);
 
-    state.printed = true;
+    exit_tx.write(AppExit::Success);
 }
