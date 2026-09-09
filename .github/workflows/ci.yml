@@ -62,4 +62,4 @@ jobs:
         with:
           components: rust-docs
       - name: Build docs
-        run: cargo +nightly rustdoc --lib -Zrustdoc-map --config build.rustdocflags="[\"--cfg\",\"docsrs\",\"-Zunstable-options\",\"--emit=invocation-specific\",\"--resource-suffix\",\"-Zrustdoc-scrape-examples\"]"
+        run: cargo +nightly rustdoc --lib --all-features -- --cfg docsrs -D warnings
