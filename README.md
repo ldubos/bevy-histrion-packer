@@ -68,8 +68,11 @@ Offset  Size    Description
 
 ## Bevy Compatibility
 
+Bevy `0.20` requires Rust `1.97.1` or later.
+
 | bevy     | bevy-histrion-packer |
 | -------- | -------------------- |
+| `0.20`   | `0.10`               |
 | `0.19`   | `0.9`                |
 | `0.18.0` | `0.8`                |
 | `0.17.0` | `0.7`                |
